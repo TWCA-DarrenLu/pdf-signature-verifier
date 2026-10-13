@@ -80,7 +80,7 @@ CheckResult stores both pre-rendered strings and i18n keys. Core modules run in 
 ## Extension Architecture
 
 - **background.ts** - Service worker handling network requests (OCSP, CRL, certificate fetch, PDF fetch) and delegating verification
-- **content.ts** - Detects PDF links/embeds on pages, injects verify buttons, manages side panel (iframe) for results
+- **content.ts** - Detects PDF links/embeds on pages, injects verify buttons, manages side panel (iframe) for results. In the PDF viewer it verifies automatically unless `pdf-verifier-settings.autoVerify` is false (remote URLs only; inline panel opens automatically only in Chrome); the panel's "re-check" posts `pdf-panel-recheck` to the content script
 - **popup/** - React components for the popup UI and verification result panel
 
 Messages flow: content script -> background (via `chrome.runtime.sendMessage`) -> core verifier -> result back to content -> panel iframe.

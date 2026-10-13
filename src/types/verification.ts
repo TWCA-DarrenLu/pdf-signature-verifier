@@ -62,6 +62,11 @@ export interface SignatureResult {
   certificateChain: CertificateInfo[]
   timestampInfo?: TimestampInfo
   rawSignature?: Uint8Array
+  /** Category of the trusted root (Taiwan government or private CA). */
+  rootCategory?: 'government' | 'private'
+  /** Time the certificates were validated at, and where it came from. */
+  validationTime?: Date
+  validationTimeSource?: 'timestamp' | 'current'
 }
 
 export interface CheckResult {
@@ -72,6 +77,14 @@ export interface CheckResult {
   i18nParams?: I18nParams
   detailsI18nKey?: string
   detailsI18nParams?: I18nParams
+  /** Not evaluated: an earlier check already decided the outcome. */
+  skipped?: boolean
+  /**
+   * Display severity when the check is not a plain pass/error:
+   *   'warning' — could not be confirmed (signature status "unknown"),
+   *   'info'    — advisory only, does not affect the status (e.g. LTV).
+   */
+  level?: 'warning' | 'info'
 }
 
 export interface CertificateInfo {
@@ -133,6 +146,21 @@ export function createFailedCheck(
   }
 }
 
+export function createSkippedCheck(
+  message: string,
+  details?: string,
+  i18n?: { key: string; detailsKey?: string }
+): CheckResult {
+  return {
+    passed: false,
+    skipped: true,
+    message,
+    details,
+    i18nKey: i18n?.key,
+    detailsI18nKey: i18n?.detailsKey,
+  }
+}
+
 export function createPassedCheck(
   message: string,
   details?: string,
@@ -165,4 +193,22 @@ export function determineOverallStatus(signatures: SignatureResult[]): Verificat
   }
 
   return 'trusted'
+}
+
+/**
+ * Visual state of a check:
+ *   pass    — confirmed
+ *   error   — a problem that makes the signature fail
+ *   warning — could not be confirmed ("not fully verified")
+ *   info    — advisory only, does not affect the status
+ *   skipped — not evaluated, an earlier check decided
+ */
+export type CheckState = 'pass' | 'error' | 'warning' | 'info' | 'skipped'
+
+export function getCheckState(check: CheckResult): CheckState {
+  if (check.skipped) return 'skipped'
+  if (check.level === 'warning') return 'warning'
+  if (check.passed) return 'pass'
+  if (check.level === 'info') return 'info'
+  return 'error'
 }

@@ -1,4 +1,4 @@
-import type { VerificationResult, SignatureResult, CertificateInfo, CheckResult } from '@/types'
+import { getCheckState, type VerificationResult, type SignatureResult, type CertificateInfo, type CheckResult } from '@/types'
 import { t, getLocale, resolveCheck, resolveSummary } from '@/i18n'
 
 function formatDate(date: Date | null | undefined): string {
@@ -66,12 +66,25 @@ function checkIcon(passed: boolean): string {
   return '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#dc2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;"><path d="M4 4l8 8M12 4l-8 8"/></svg>'
 }
 
+/** Same states as the panel: skipped, warning and info are not failures. */
+function checkStateIcon(check: CheckResult): string {
+  const svg = (color: string, path: string) =>
+    `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:middle;">${path}</svg>`
+  switch (getCheckState(check)) {
+    case 'skipped': return svg('#9ca3af', '<path d="M4 8h8"/>')
+    case 'warning': return svg('#d97706', '<path d="M8 2L1.5 13.5h13L8 2z"/><path d="M8 6.5v3M8 11.5v.01"/>')
+    case 'info': return svg('#64748b', '<circle cx="8" cy="8" r="6.5"/><path d="M8 7.5v4M8 5v.01"/>')
+    case 'pass': return checkIcon(true)
+    default: return checkIcon(false)
+  }
+}
+
 function renderCheckRow(label: string, check: CheckResult | null): string {
   if (!check) return ''
   const resolved = resolveCheck(check)
   return `
     <tr>
-      <td style="padding:6px 12px;border:1px solid #e5e7eb;">${checkIcon(check.passed)}</td>
+      <td style="padding:6px 12px;border:1px solid #e5e7eb;">${checkStateIcon(check)}</td>
       <td style="padding:6px 12px;border:1px solid #e5e7eb;">${escapeHtml(label)}</td>
       <td style="padding:6px 12px;border:1px solid #e5e7eb;">${escapeHtml(resolved.message)}${resolved.details ? `<br><span style="color:#6b7280;font-size:0.85em;">${escapeHtml(resolved.details)}</span>` : ''}</td>
     </tr>`

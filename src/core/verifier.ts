@@ -13,6 +13,7 @@ import type {
 import {
   createPassedCheck,
   createFailedCheck,
+  createSkippedCheck,
   determineOverallStatus,
 } from '@/types'
 
@@ -28,7 +29,7 @@ import { checkCertificateRevocation, type CertRevocationOutcome, type Revocation
 import { verifyTimestampForData, type TimestampFailure } from './timestamp/tst-verifier'
 import { checkLtvCompleteness } from './ltv/ltv-checker'
 import { createChangeAnalyzer, type ChangeAnalyzer, type ChangePolicy } from './pdf/incremental-update'
-import { initializeTrustStore, isTrustStoreEmpty } from '@/trust-store/trust-manager'
+import { initializeTrustStore, isTrustStoreEmpty, getAnchorCategory } from '@/trust-store/trust-manager'
 import { ensurePkijsEngine } from './crypto/pkijs-engine'
 
 export interface VerificationOptions {
@@ -192,7 +193,10 @@ async function verifySingleSignature(
   ctx: DocContext
 ): Promise<SignatureResult> {
   const notVerified = () =>
-    createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' })
+    createSkippedCheck(t('core.check.skipped'), t('core.check.skippedDetails'), {
+      key: 'core.check.skipped',
+      detailsKey: 'core.check.skippedDetails',
+    })
   const checks: SignatureResult['checks'] = {
     integrity: notVerified(),
     certificateChain: notVerified(),
@@ -242,9 +246,11 @@ async function verifySingleSignature(
     checks.integrity = integrity.check
     if (!integrity.passed) {
       // An algorithm we cannot verify is "cannot tell", not "invalid".
-      return integrity.unsupported
-        ? createSignatureResult(index, signerName, signedAt, 'unknown', checks, certificateChain)
-        : fail()
+      if (integrity.unsupported) {
+        checks.integrity = { ...checks.integrity, level: 'warning' }
+        return createSignatureResult(index, signerName, signedAt, 'unknown', checks, certificateChain)
+      }
+      return fail()
     }
 
     const revInfo = mergeRevocationInfo(pkcs7.embeddedRevocationInfo, ctx.dss)
@@ -387,7 +393,11 @@ async function verifySingleSignature(
       unexplainedChanges,
     })
 
-    return createSignatureResult(index, signerName, signedAt, status, checks, certificateChain, timestampInfo, sigField.reason, {
+    const rootCategory = chain.isTrusted && chain.root ? getAnchorCategory(chain.root) ?? undefined : undefined
+    return createSignatureResult(index, signerName, signedAt, status, applyLevels(checks, timestampFailure), certificateChain, timestampInfo, sigField.reason, {
+      rootCategory,
+      validationTime,
+      validationTimeSource: trustedTime ? 'timestamp' : 'current',
       type: sigField.docMdp ? 'certification' : 'approval',
       docMdp: sigField.docMdp,
       ltvLevel: ltvResult.level,
@@ -735,7 +745,11 @@ async function verifyDocTimeStamp(
   index: number,
   ctx: DocContext
 ): Promise<DocTimestampOutcome> {
-  const label = () => createFailedCheck(t('core.docTimestamp.notVerified'), undefined, { key: 'core.docTimestamp.notVerified' })
+  const label = () =>
+    createSkippedCheck(t('core.check.skipped'), t('core.check.skippedDetails'), {
+      key: 'core.check.skipped',
+      detailsKey: 'core.check.skippedDetails',
+    })
   const checks: SignatureResult['checks'] = {
     integrity: label(),
     certificateChain: label(),
@@ -851,8 +865,11 @@ async function verifyDocTimeStamp(
     })
 
     return {
-      result: createSignatureResult(index, signerName, ts.info.time, status, checks, certificateChain, ts.info, undefined, {
+      result: createSignatureResult(index, signerName, ts.info.time, status, applyLevels(checks, ts.valid ? null : ts.failure ?? 'parse'), certificateChain, ts.info, undefined, {
         type: 'timestamp',
+        rootCategory: tsaChain?.isTrusted && tsaChain.root ? getAnchorCategory(tsaChain.root) ?? undefined : undefined,
+        validationTime: ts.info.time,
+        validationTimeSource: 'timestamp',
       }),
       trusted: status === 'trusted',
       ltvCovered,
@@ -865,6 +882,42 @@ async function verifyDocTimeStamp(
     )
     return failedOutcome()
   }
+}
+
+const BROKEN_TIMESTAMP: Array<TimestampFailure | null> = ['imprintMismatch', 'signatureInvalid', 'tsaRevoked']
+
+/**
+ * Display severity for checks that did not pass:
+ *   error (default) — leads to "failed",
+ *   'warning'       — could not be confirmed, leads to "unknown",
+ *   'info'          — advisory only (missing timestamp, LTV completeness).
+ */
+function applyLevels(checks: SignatureResult['checks'], timestampFailure: TimestampFailure | null): SignatureResult['checks'] {
+  const withLevel = (c: CheckResult, level: 'warning' | 'info'): CheckResult => ({ ...c, level })
+  const out = { ...checks }
+  const pending = (c: CheckResult | null): c is CheckResult => !!c && !c.passed && !c.skipped
+
+  if (out.integrity.passed && out.integrity.detailsI18nKey === 'core.integrity.unpermittedChanges') {
+    out.integrity = withLevel(out.integrity, 'warning')
+  } else if (pending(out.integrity) && out.integrity.detailsI18nKey === 'core.integrity.unsupportedDigest') {
+    out.integrity = withLevel(out.integrity, 'warning')
+  }
+  if (pending(out.certificateChain) && ['core.chain.chainVerifiedUntrustedRoot', 'core.chain.chainIncomplete'].includes(out.certificateChain.i18nKey ?? '')) {
+    out.certificateChain = withLevel(out.certificateChain, 'warning')
+  }
+  if (pending(out.trustRoot) && out.trustRoot.detailsI18nKey !== 'core.trust.selfSignedNotSupported') {
+    out.trustRoot = withLevel(out.trustRoot, 'warning')
+  }
+  if (pending(out.validity)) out.validity = withLevel(out.validity, 'warning')
+  if (pending(out.revocation) && out.revocation.i18nKey !== 'core.revocation.revoked') {
+    out.revocation = withLevel(out.revocation, 'warning')
+  }
+  if (pending(out.timestamp)) {
+    if (out.timestamp.i18nKey === 'core.timestamp.noTimestamp') out.timestamp = withLevel(out.timestamp, 'info')
+    else if (!BROKEN_TIMESTAMP.includes(timestampFailure)) out.timestamp = withLevel(out.timestamp, 'warning')
+  }
+  if (pending(out.ltv)) out.ltv = withLevel(out.ltv, 'info')
+  return out
 }
 
 interface ChangeAssessment {
@@ -956,7 +1009,12 @@ function createSignatureResult(
   certificateChain: CertificateInfo[],
   timestampInfo?: TimestampInfo,
   reason?: string,
-  extras?: Partial<Pick<SignatureResult, 'type' | 'docMdp' | 'ltvLevel' | 'subsequentChanges'>>
+  extras?: Partial<
+    Pick<
+      SignatureResult,
+      'type' | 'docMdp' | 'ltvLevel' | 'subsequentChanges' | 'rootCategory' | 'validationTime' | 'validationTimeSource'
+    >
+  >
 ): SignatureResult {
   return {
     index,

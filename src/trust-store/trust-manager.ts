@@ -15,6 +15,8 @@ let signingTrustCache: ParsedCertificate[] | null = null
 let tsaTrustCache: ParsedCertificate[] | null = null
 let intermediateCache: ParsedCertificate[] | null = null
 let initWarnings: string[] = []
+/** Anchor fingerprint → category (government / private). */
+const anchorCategories = new Map<string, TrustAnchorEntry['category']>()
 
 /**
  * Convert a fingerprint string (with or without colons) to a normalized
@@ -62,6 +64,7 @@ async function loadEntries(
       }
 
       anchors.push(parsed)
+      anchorCategories.set(normalizeFingerprint(parsed.fingerprint), entry.category)
     } catch (error) {
       warnings.push(
         `[${storeLabel}] Failed to parse "${entry.name}": ${
@@ -172,6 +175,11 @@ export function isTsaTrustAnchor(cert: ParsedCertificate): boolean {
  */
 export function findTrustAnchor(cert: ParsedCertificate): ParsedCertificate | null {
   return findByFingerprint(cert, getTrustAnchors())
+}
+
+/** Category of a trust anchor (by fingerprint), or null if it is not one. */
+export function getAnchorCategory(cert: ParsedCertificate): TrustAnchorEntry['category'] | null {
+  return anchorCategories.get(normalizeFingerprint(cert.fingerprint)) ?? null
 }
 
 export function getTrustAnchorInfo(): TrustAnchor[] {

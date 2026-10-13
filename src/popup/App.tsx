@@ -23,6 +23,7 @@ export function App() {
   const [, forceUpdate] = useState(0)
   const [pdfTabUrl, setPdfTabUrl] = useState<string | null>(getQueryParam('pdfUrl'))
   const [verifyingPdfTab, setVerifyingPdfTab] = useState(false)
+  const [lastFile, setLastFile] = useState<File | null>(null)
 
   useEffect(() => {
     if (settings.language) {
@@ -115,6 +116,7 @@ export function App() {
   }
 
   const handleFileSelect = async (file: File) => {
+    setLastFile(file)
     await verify(file, {
       checkOnlineRevocation: true,
     })
@@ -215,6 +217,15 @@ export function App() {
               <div className="flex items-center justify-between">
                 <StatusBadge status={result.status} size="lg" />
                 <div className="flex items-center gap-3">
+                  {lastFile && (
+                    <button
+                      onClick={() => handleFileSelect(lastFile)}
+                      title={t('verification.recheckHint')}
+                      className="text-sm text-gray-600 hover:text-gray-800"
+                    >
+                      {t('verification.recheck')}
+                    </button>
+                  )}
                   <ExportButton result={result} />
                   <button
                     onClick={reset}

@@ -7,7 +7,7 @@
   },
   "status": {
     "trusted": "文件可信",
-    "unknown": "來源未知",
+    "unknown": "無法完整驗證",
     "failed": "驗證失敗"
   },
   "verification": {
@@ -17,7 +17,9 @@
     "noResult": "無驗證結果",
     "errorTitle": "驗證失敗",
     "retryButton": "重新選擇檔案",
-    "verifyOther": "驗證其他檔案"
+    "verifyOther": "驗證其他檔案",
+    "recheck": "重新檢查",
+    "recheckHint": "重新下載文件並線上查詢撤銷狀態"
   },
   "panel": {
     "title": "簽章驗證結果",
@@ -27,12 +29,16 @@
     "title": "簽章",
     "valid": "簽章有效",
     "invalid": "簽章無效",
-    "statusUnknown": "簽章未知",
+    "statusUnknown": "無法完整驗證",
     "signer": "簽署者：",
     "signedAt": "時間：",
     "reason": "原因：",
     "location": "位置：",
-    "unknown": "未知"
+    "unknown": "未知",
+    "reasons": "主要原因：",
+    "validationBasis": "驗證時間依據：",
+    "validationByTimestamp": "時戳時間 {time}",
+    "validationByCurrent": "目前時間（無可信時戳）"
   },
   "checks": {
     "title": "驗證詳情",
@@ -50,7 +56,8 @@
     "trusted": "已信任",
     "valid": "有效",
     "notRevoked": "未撤銷",
-    "complete": "完整"
+    "complete": "完整",
+    "skipped": "略過"
   },
   "certificate": {
     "chainTitle": "憑證鏈",
@@ -87,7 +94,7 @@
   "settings": {
     "title": "設定",
     "checkOnlineRevocation": "線上查詢撤銷狀態",
-    "autoVerify": "自動驗證頁面中的 PDF",
+    "autoVerify": "開啟 PDF 時自動驗證",
     "language": "語言",
     "langZhTW": "繁體中文",
     "langEn": "English"
@@ -104,7 +111,7 @@
     "verifying": "驗證中...",
     "trusted": "文件可信",
     "failed": "驗證失敗",
-    "unknown": "來源未知",
+    "unknown": "無法完整驗證",
     "error": "錯誤",
     "noResponse": "無回應",
     "unknownError": "未知錯誤",
@@ -119,7 +126,11 @@
     "pdfDetected": "偵測到 PDF 文件",
     "dismiss": "關閉",
     "fileReadFailed": "讀取檔案失敗",
-    "noFileSelected": "未選擇檔案"
+    "noFileSelected": "未選擇檔案",
+    "noSignatures": "未發現數位簽章",
+    "viewResult": "查看結果",
+    "cannotFetchPdf": "無法取得 PDF 內容（可能為一次性或已過期的連結），請下載後拖放到擴充功能驗證",
+    "localFileHint": "本機檔案需手動選擇檔案驗證"
   },
   "core": {
     "integrity": {
@@ -315,6 +326,10 @@
       "verificationProcessError": "驗證過程發生錯誤",
       "partialAlgorithmUnsupported": "部分演算法不支援",
       "validityTo": "{from} 至 {to}"
+    },
+    "check": {
+      "skipped": "略過",
+      "skippedDetails": "前一項檢查已判定結果，此項未執行"
     }
   },
   "report": {
@@ -357,8 +372,12 @@
     "timestampInvalid": "無效",
     "statusTrusted": "可信任",
     "statusFailed": "驗證失敗",
-    "statusUnknown": "未知",
+    "statusUnknown": "無法完整驗證",
     "reportGenTime": "報告產生時間：{time}",
     "reportGenBy": "由 PDFtrust 產生"
+  },
+  "trust": {
+    "government": "公部門",
+    "private": "民間"
   }
 }

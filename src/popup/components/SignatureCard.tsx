@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { SignatureResult } from '@/types'
-import { t, getLocale } from '@/i18n'
+import { getCheckState, type SignatureResult } from '@/types'
+import { t, getLocale, resolveCheck } from '@/i18n'
 import { VerificationDetails } from './VerificationDetails'
 import { CertificateChain } from './CertificateChain'
 import { CheckIcon, XIcon, WarningIcon } from './icons'
@@ -57,6 +57,30 @@ export function SignatureCard({ signature }: SignatureCardProps) {
       minute: '2-digit',
     })
   }
+
+  // Checks that explain a "not fully verified" or "invalid" verdict
+  const reasonLabels: Record<string, string> = {
+    integrity: t('checks.integrity'),
+    certificateChain: t('checks.signerIdentity'),
+    trustRoot: t('checks.rootCert'),
+    validity: t('checks.validity'),
+    revocation: t('checks.revocation'),
+    timestamp: t('checks.timestamp'),
+  }
+  const reasons =
+    signature.status === 'trusted'
+      ? []
+      : Object.entries(signature.checks)
+          .filter(([key, check]) => check && key in reasonLabels && ['error', 'warning'].includes(getCheckState(check)))
+          .sort(([, a], [, b]) => Number(getCheckState(a!) !== 'error') - Number(getCheckState(b!) !== 'error'))
+          .slice(0, 2)
+          .map(([key, check]) => `${reasonLabels[key]}：${resolveCheck(check!).message}`)
+
+  const validationBasis = signature.validationTimeSource
+    ? signature.validationTimeSource === 'timestamp' && signature.validationTime
+      ? t('signature.validationByTimestamp', { time: formatDate(signature.validationTime) })
+      : t('signature.validationByCurrent')
+    : null
 
   const getRootCA = () => {
     const rootCert = signature.certificateChain.find((c) => c.isRoot)
@@ -117,6 +141,18 @@ export function SignatureCard({ signature }: SignatureCardProps) {
               {signature.location}
             </div>
           )}
+          {validationBasis && (
+            <div className="text-gray-600">
+              <span className="text-gray-500">{t('signature.validationBasis')}</span>
+              {validationBasis}
+            </div>
+          )}
+          {reasons.length > 0 && (
+            <div className={signature.status === 'failed' ? 'text-red-700' : 'text-amber-700'}>
+              <span className="font-medium">{t('signature.reasons')}</span>
+              {reasons.join('；')}
+            </div>
+          )}
         </div>
       </button>
 
@@ -129,6 +165,7 @@ export function SignatureCard({ signature }: SignatureCardProps) {
               checks={signature.checks}
               chainLength={signature.certificateChain.length}
               rootCA={getRootCA()}
+              rootCategory={signature.rootCategory}
             />
           </div>
 

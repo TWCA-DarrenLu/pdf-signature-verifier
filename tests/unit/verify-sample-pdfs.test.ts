@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { verifyPdfSignatures } from '@/core/verifier'
 import { setLocale } from '@/i18n'
-import type { VerificationResult } from '@/types'
+import { getCheckState, type VerificationResult } from '@/types'
 
 /**
  * End-to-end checks against real signed PDFs in PDF_Sample/ (gitignored —
@@ -39,8 +39,35 @@ async function verify(file: string, online = false): Promise<VerificationResult>
   return verifyPdfSignatures(data, file, { checkOnlineRevocation: online })
 }
 
+const SIGNED_SAMPLES = ['hsm-signed-a.pdf', 'hsm-signed-b.pdf', 'ixml-plus-signed.pdf', 'expired-hsm-and-foreign-ca.pdf',
+  'foreign-tsa.pdf', 'self-signed.pdf', 'attached-signed-pdfs.pdf', 'encrypted-signed.pdf']
+
+/** failed ⇒ a red check; unknown ⇒ amber but no red; trusted ⇒ neither. */
+async function expectStatesMatchStatus(online: boolean): Promise<void> {
+  for (const file of SIGNED_SAMPLES) {
+    const result = await verify(file, online)
+    for (const sig of result.signatures) {
+      const states = Object.values(sig.checks).filter(Boolean).map((c) => getCheckState(c!))
+      const where = `${file} / ${sig.signerName}: ${sig.status} ${states.join(',')}`
+      if (sig.status === 'failed') expect(states, where).toContain('error')
+      if (sig.status === 'unknown') {
+        expect(states, where).not.toContain('error')
+        expect(states, where).toContain('warning')
+      }
+      if (sig.status === 'trusted') {
+        expect(states, where).not.toContain('error')
+        expect(states, where).not.toContain('warning')
+      }
+    }
+  }
+}
+
 describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
   beforeAll(() => setLocale('zh-TW'))
+
+  it('check states agree with each signature status (what the panel colours show)', async () => {
+    await expectStatesMatchStatus(false)
+  })
 
   it('HSM samples: signatures intact and trusted path, but TSA revocation is not embedded', async () => {
     for (const file of HSM_SAMPLES) {
@@ -122,6 +149,10 @@ describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
 
 describe.skipIf(!hasSamples || !process.env.PDF_SAMPLE_ONLINE)('Sample PDF verification (online)', () => {
   beforeAll(() => setLocale('zh-TW'))
+
+  it('check states agree with each signature status (online)', async () => {
+    await expectStatesMatchStatus(true)
+  })
 
   it('HSM and IXML samples are trusted once the TSA and signer revocation can be checked online', async () => {
     for (const file of [...HSM_SAMPLES, 'ixml-plus-signed.pdf']) {

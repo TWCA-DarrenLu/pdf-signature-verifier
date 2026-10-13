@@ -22,6 +22,7 @@ export {
   isTrustAnchor,
   isTsaTrustAnchor,
   findTrustAnchor,
+  getAnchorCategory,
   getTrustAnchorInfo,
   addCustomTrustAnchor,
   addCustomTsaTrustAnchor,
