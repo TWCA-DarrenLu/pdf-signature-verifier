@@ -18,10 +18,10 @@ const EXTENSION_DIR = resolve(ROOT, '.output/chrome-mv3')
 const SAMPLE_DIR = resolve(ROOT, 'PDF_Sample')
 
 const CASES = [
-  { file: '範例文件(以工商憑證換發AATL憑證簽署).pdf', expected: 'trusted' },
-  { file: '自發簽章.pdf', expected: 'failed' },
-  // expired one-day HSM cert without embedded TWCA revocation data + foreign (DigiCert) co-signature
-  { file: '(TWCA 正式環境)Docusign TSP 簽章範例.pdf', expected: 'unknown' },
+  { file: 'hsm-signed-a.pdf', expected: 'trusted' },
+  { file: 'self-signed.pdf', expected: 'failed' },
+  // expired one-day HSM certificate without embedded revocation data + co-signature under a foreign root
+  { file: 'expired-hsm-and-foreign-ca.pdf', expected: 'unknown' },
 ]
 
 test.skip(!existsSync(EXTENSION_DIR) || !existsSync(SAMPLE_DIR), 'needs npm run build and PDF_Sample/')

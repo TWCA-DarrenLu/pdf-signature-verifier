@@ -10,6 +10,16 @@ import type { VerificationResult } from '@/types'
  * End-to-end checks against real signed PDFs in PDF_Sample/ (gitignored —
  * local only; the suite is skipped when the folder is absent).
  *
+ * Expected local samples (generic names):
+ *   hsm-signed-a.pdf / hsm-signed-b.pdf — TWCA HSM signer + MyTWES signature, embedded CRLs, TWCA TSA
+ *   ixml-plus-signed.pdf                — signer under TWCA Information XML Plus Root CA + MyTWES signature
+ *   expired-hsm-and-foreign-ca.pdf      — expired one-day HSM certificate + co-signature under a foreign root
+ *   foreign-tsa.pdf                     — Taiwan signer, timestamp from a non-Taiwan TSA
+ *   self-signed.pdf                     — self-signed signer
+ *   attached-signed-pdfs.pdf            — self-signed outer signature, signed PDFs as attachments
+ *   unsigned.pdf                        — no signature
+ *   encrypted-signed.pdf                — encrypted, signed document
+ *
  * Default run is OFFLINE (no OCSP / CRL / AIA fetches): the outcome depends
  * only on the PDF content and the bundled Taiwan trust store. Set
  * PDF_SAMPLE_ONLINE=1 to also run the online expectations.
@@ -22,7 +32,7 @@ vi.setConfig({ testTimeout: 120_000 })
 
 const SAMPLE_DIR = resolve(__dirname, '../../PDF_Sample')
 const hasSamples = existsSync(SAMPLE_DIR)
-const TWCA_SAMPLES = ['範例文件(以工商憑證換發AATL憑證簽署).pdf', 'TWCA 行動工商憑證介接申請書v1.0_測試環境(MyTWES 簽署).pdf']
+const HSM_SAMPLES = ['hsm-signed-a.pdf', 'hsm-signed-b.pdf']
 
 async function verify(file: string, online = false): Promise<VerificationResult> {
   const data = readFileSync(resolve(SAMPLE_DIR, file))
@@ -32,8 +42,8 @@ async function verify(file: string, online = false): Promise<VerificationResult>
 describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
   beforeAll(() => setLocale('zh-TW'))
 
-  it('TWCA samples: signatures intact and trusted path, but TSA revocation is not embedded', async () => {
-    for (const file of TWCA_SAMPLES) {
+  it('HSM samples: signatures intact and trusted path, but TSA revocation is not embedded', async () => {
+    for (const file of HSM_SAMPLES) {
       const result = await verify(file)
       expect(result.signatures, file).toHaveLength(2)
       for (const sig of result.signatures) {
@@ -51,21 +61,21 @@ describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
   })
 
   it('rejects a self-signed signer', async () => {
-    const result = await verify('自發簽章.pdf')
+    const result = await verify('self-signed.pdf')
     expect(result.status).toBe('failed')
     expect(result.signatures[0].checks.certificateChain.i18nKey).toBe('core.chain.selfSignedNotSupported')
     expect(result.signatures[0].checks.integrity.passed).toBe(true)
   })
 
   it('ignores signatures inside attached PDFs and rejects the self-signed outer signature', async () => {
-    const result = await verify('container_signed.pdf')
+    const result = await verify('attached-signed-pdfs.pdf')
     expect(result.signatures).toHaveLength(1)
     expect(result.signatures[0].checks.certificateChain.i18nKey).toBe('core.chain.selfSignedNotSupported')
     expect(result.status).toBe('failed')
   })
 
-  it('expired one-day HSM certificate without embedded TWCA revocation data stays unknown', async () => {
-    const result = await verify('(TWCA 正式環境)Docusign TSP 簽章範例.pdf')
+  it('expired one-day HSM certificate without embedded revocation data stays unknown', async () => {
+    const result = await verify('expired-hsm-and-foreign-ca.pdf')
     expect(result.status).toBe('unknown')
     const twca = result.signatures.find((s) => /HSMT/.test(s.signerName))!
     expect(twca.checks.integrity.passed).toBe(true)
@@ -80,7 +90,7 @@ describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
   })
 
   it('does not accept a timestamp from a non-Taiwan TSA', async () => {
-    const result = await verify('AATL 簽章範本.pdf')
+    const result = await verify('foreign-tsa.pdf')
     const sig = result.signatures[0]
     expect(sig.checks.trustRoot.passed).toBe(true)
     expect(sig.checks.timestamp?.passed).toBe(false)
@@ -88,7 +98,7 @@ describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
   })
 
   it('IXML signatures chain to TWCA Information XML Plus Root CA (official TWCA repository)', async () => {
-    const result = await verify('IXML 簽章.pdf')
+    const result = await verify('ixml-plus-signed.pdf')
     expect(result.signatures).toHaveLength(2)
     expect(result.signatures[0].checks.trustRoot.passed).toBe(true)
     expect(result.signatures[0].checks.trustRoot.details).toContain('TWCA Information XML Plus Root CA')
@@ -98,13 +108,13 @@ describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
   })
 
   it('reports no signatures for an unsigned document', async () => {
-    const result = await verify('無簽章文件.pdf')
+    const result = await verify('unsigned.pdf')
     expect(result.signatures).toHaveLength(0)
     expect(result.status).toBe('unknown')
   })
 
   it('never reports an encrypted document it cannot fully inspect as trusted', async () => {
-    const result = await verify('MyTWES_簽署歷程.pdf')
+    const result = await verify('encrypted-signed.pdf')
     expect(result.status).not.toBe('trusted')
     expect(result.signatures[0].checks.integrity.passed).toBe(true)
   })
@@ -113,8 +123,8 @@ describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
 describe.skipIf(!hasSamples || !process.env.PDF_SAMPLE_ONLINE)('Sample PDF verification (online)', () => {
   beforeAll(() => setLocale('zh-TW'))
 
-  it('TWCA samples are trusted once the TSA and signer revocation can be checked online', async () => {
-    for (const file of [...TWCA_SAMPLES, 'IXML 簽章.pdf']) {
+  it('HSM and IXML samples are trusted once the TSA and signer revocation can be checked online', async () => {
+    for (const file of [...HSM_SAMPLES, 'ixml-plus-signed.pdf']) {
       const result = await verify(file, true)
       expect(result.status, file).toBe('trusted')
       for (const sig of result.signatures) {
