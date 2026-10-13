@@ -1,15 +1,26 @@
 import { useState, useEffect, useCallback } from 'react'
+import { resolveAutoVerifyScope, type AutoVerifyScope } from '@/settings/auto-verify'
 
 export interface Settings {
+  /** Superseded by autoVerifyScope; kept in sync for older readers. */
   autoVerify: boolean
+  autoVerifyScope: AutoVerifyScope
+  autoVerifySites: string[]
   checkOnlineRevocation: boolean
   language: 'zh-TW' | 'en'
 }
 
 const DEFAULT_SETTINGS: Settings = {
   autoVerify: true,
+  autoVerifyScope: 'all',
+  autoVerifySites: [],
   checkOnlineRevocation: false,
   language: 'zh-TW',
+}
+
+/** Stored settings may predate autoVerifyScope (only the boolean autoVerify). */
+function withDefaults(stored: Partial<Settings>): Settings {
+  return { ...DEFAULT_SETTINGS, ...stored, autoVerifyScope: resolveAutoVerifyScope(stored) }
 }
 
 const STORAGE_KEY = 'pdf-verifier-settings'
@@ -28,6 +39,7 @@ export function useSettings() {
 
   const updateSettings = useCallback(async (updates: Partial<Settings>) => {
     const newSettings = { ...settings, ...updates }
+    newSettings.autoVerify = newSettings.autoVerifyScope !== 'off'
     setSettings(newSettings)
     await saveSettings(newSettings)
   }, [settings])
@@ -50,12 +62,12 @@ async function loadSettings(): Promise<Settings> {
     if (typeof chrome !== 'undefined' && chrome.storage) {
       const result = await chrome.storage.local.get(STORAGE_KEY)
       if (result[STORAGE_KEY]) {
-        return { ...DEFAULT_SETTINGS, ...result[STORAGE_KEY] }
+        return withDefaults(result[STORAGE_KEY])
       }
     } else {
       const stored = localStorage.getItem(STORAGE_KEY)
       if (stored) {
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) }
+        return withDefaults(JSON.parse(stored))
       }
     }
   } catch {

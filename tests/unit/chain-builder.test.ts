@@ -1,29 +1,27 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { readFileSync } from 'fs'
+import { resolve } from 'path'
 import type { ParsedCertificate, KeyUsageFlags } from '@/types'
+import { buildCertificateChain } from '@/core/certificate/chain-builder'
+import { parseCertificateFromBytes } from '@/core/certificate/cert-utils'
+import {
+  addCustomTrustAnchor,
+  clearTrustAnchors,
+  initializeTrustStore,
+  isTrustAnchor,
+} from '@/trust-store/trust-manager'
+import { generateKey, issueCertificate } from '../helpers/test-pki'
 
-// Mock network module to prevent actual fetches
+// Never touch the network from unit tests (AIA fetches return nothing).
 vi.mock('@/core/network', () => ({
   fetchCertificateBytes: vi.fn(() => Promise.resolve(null)),
+  fetchBinary: vi.fn(() => Promise.resolve(null)),
+  fetchOcspResponse: vi.fn(() => Promise.resolve(null)),
 }))
 
-// Mock cert-utils parseCertificateFromBytes
-vi.mock('@/core/certificate/cert-utils', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>()
-  return {
-    ...actual,
-    parseCertificateFromBytes: vi.fn(() => Promise.resolve(null)),
-  }
-})
-
-// Mock the trust manager so tests can opt cert fingerprints into the trust
-// store without loading real PEMs. Default: trust store empty.
-const trustedFingerprints = new Set<string>()
-vi.mock('@/trust-store/trust-manager', () => ({
-  isChainTrusted: (chain: ParsedCertificate[]) =>
-    chain.some((c) => trustedFingerprints.has(c.fingerprint)),
-  findTrustAnchor: (cert: ParsedCertificate) =>
-    trustedFingerprints.has(cert.fingerprint) ? cert : null,
-}))
+const CERT_DIR = resolve(__dirname, '../../scripts/trust-store/certs')
+const realCert = (file: string) =>
+  parseCertificateFromBytes(new Uint8Array(readFileSync(resolve(CERT_DIR, file))))
 
 function createEmptyKeyUsage(): KeyUsageFlags {
   return {
@@ -62,182 +60,120 @@ function createMockCert(overrides: Partial<ParsedCertificate>): ParsedCertificat
 }
 
 describe('chain-builder', () => {
-  describe('buildCertificateChain', () => {
-    it('should return a single-cert chain for a self-signed certificate (untrusted)', async () => {
-      // Audit P0-2: a self-signed root is structurally complete but NOT
-      // automatically trusted — the trust check must consult the trust store.
-      trustedFingerprints.clear()
-      const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
+  beforeEach(async () => {
+    clearTrustAnchors()
+    await initializeTrustStore()
+  })
 
-      const selfSigned = createMockCert({
-        subject: 'CN=Root CA',
-        issuer: 'CN=Root CA',
-        isSelfSigned: true,
-        fingerprint: 'root-fp',
-      })
-
-      const chain = await buildCertificateChain(selfSigned, [])
-
-      expect(chain.certificates).toHaveLength(1)
-      expect(chain.isComplete).toBe(true)
-      expect(chain.isTrusted).toBe(false) // not in trust store
-      expect(chain.root).toBe(selfSigned)
+  describe('buildCertificateChain (real signatures)', () => {
+    it('rejects a self-signed end-entity certificate, even an anchor', async () => {
+      const root = await realCert('grca-g2.cer')
+      expect(isTrustAnchor(root)).toBe(true)
+      const chain = await buildCertificateChain(root, [])
+      expect(chain.selfSignedLeaf).toBe(true)
+      expect(chain.isTrusted).toBe(false)
     })
 
-    it('marks a self-signed root as trusted when it is in the trust store', async () => {
-      trustedFingerprints.clear()
-      trustedFingerprints.add('root-fp')
-      const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
-
-      const selfSigned = createMockCert({
-        subject: 'CN=Root CA',
-        issuer: 'CN=Root CA',
-        isSelfSigned: true,
-        fingerprint: 'root-fp',
-      })
-
-      const chain = await buildCertificateChain(selfSigned, [])
-
-      expect(chain.isComplete).toBe(true)
+    it('builds MOICA G2 to GRCA G2 (same-name GRCA G1 is not used)', async () => {
+      const moica = await realCert('moica-g2.cer')
+      const chain = await buildCertificateChain(moica, [])
       expect(chain.isTrusted).toBe(true)
+      expect(chain.certificates).toHaveLength(2)
+      expect(chain.root?.fingerprint).toBe((await realCert('grca-g2.cer')).fingerprint)
     })
 
-    it('should build a chain from end entity through intermediate to root', async () => {
-      trustedFingerprints.clear()
-      trustedFingerprints.add('root-fp') // anchor the root
-      const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
-
-      const root = createMockCert({
-        subject: 'CN=Root CA',
-        issuer: 'CN=Root CA',
-        isSelfSigned: true,
-        fingerprint: 'root-fp',
-        subjectKeyIdentifier: 'root-ski',
-      })
-
-      const intermediate = createMockCert({
-        subject: 'CN=Intermediate CA',
-        issuer: 'CN=Root CA',
-        isSelfSigned: false,
-        fingerprint: 'int-fp',
-        subjectKeyIdentifier: 'int-ski',
-        authorityKeyIdentifier: 'root-ski',
-      })
-
-      const endEntity = createMockCert({
-        subject: 'CN=Signer',
-        issuer: 'CN=Intermediate CA',
-        isSelfSigned: false,
-        fingerprint: 'ee-fp',
-        authorityKeyIdentifier: 'int-ski',
-      })
-
-      const chain = await buildCertificateChain(endEntity, [intermediate, root])
-
-      expect(chain.certificates).toHaveLength(3)
-      expect(chain.certificates[0].subject).toBe('CN=Signer')
-      expect(chain.certificates[1].subject).toBe('CN=Intermediate CA')
-      expect(chain.certificates[2].subject).toBe('CN=Root CA')
-      expect(chain.isComplete).toBe(true)
+    it('builds MOEACA G3 to GRCA G3', async () => {
+      const chain = await buildCertificateChain(await realCert('moeaca-g3.cer'), [])
       expect(chain.isTrusted).toBe(true)
-      expect(chain.root?.subject).toBe('CN=Root CA')
+      expect(chain.root?.subject).toContain('G3')
     })
 
-    it('should return incomplete chain when issuer is missing', async () => {
-      const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
+    it('builds leaf, intermediate, anchor with every link verified', async () => {
+      const root = await issueCertificate({ subjectCN: 'Test Root', isCA: true })
+      const ca = await issueCertificate({ subjectCN: 'Test CA', issuerCN: 'Test Root', issuerKey: root.key, isCA: true })
+      const leaf = await issueCertificate({ subjectCN: 'Test Signer', issuerCN: 'Test CA', issuerKey: ca.key })
+      await addCustomTrustAnchor(root.pem)
 
-      const endEntity = createMockCert({
-        subject: 'CN=Signer',
-        issuer: 'CN=Unknown CA',
-        isSelfSigned: false,
-        fingerprint: 'ee-fp',
-      })
+      const chain = await buildCertificateChain(leaf.parsed, [ca.parsed])
+      expect(chain.isTrusted).toBe(true)
+      expect(chain.certificates.map((c) => c.subject)).toEqual([
+        leaf.parsed.subject,
+        ca.parsed.subject,
+        root.parsed.subject,
+      ])
+    })
 
-      const chain = await buildCertificateChain(endEntity, [])
+    it('never trusts a lookalike root with the same DN and serial but another key', async () => {
+      const anchor = await issueCertificate({ subjectCN: 'Test Root', isCA: true, serial: 4242 })
+      await addCustomTrustAnchor(anchor.pem)
+      const lookalike = await issueCertificate({ subjectCN: 'Test Root', isCA: true, serial: 4242 })
+      const leaf = await issueCertificate({ subjectCN: 'Test Signer', issuerCN: 'Test Root', issuerKey: lookalike.key })
 
-      expect(chain.certificates).toHaveLength(1)
+      expect(isTrustAnchor(lookalike.parsed)).toBe(false)
+      const chain = await buildCertificateChain(leaf.parsed, [lookalike.parsed])
+      expect(chain.isTrusted).toBe(false)
+    })
+
+    it('does not accept a link whose signature fails (issuer name alone is not enough)', async () => {
+      const root = await issueCertificate({ subjectCN: 'Test Root', isCA: true })
+      await addCustomTrustAnchor(root.pem)
+      const stranger = await generateKey()
+      const leaf = await issueCertificate({ subjectCN: 'Test Signer', issuerCN: 'Test Root', issuerKey: stranger })
+
+      const chain = await buildCertificateChain(leaf.parsed, [])
+      expect(chain.isTrusted).toBe(false)
+      expect(chain.isComplete).toBe(false)
+    })
+
+    it('backtracks across same-name issuers and picks the one whose signature verifies', async () => {
+      const root = await issueCertificate({ subjectCN: 'Test Root', isCA: true })
+      await addCustomTrustAnchor(root.pem)
+      const caA = await issueCertificate({ subjectCN: 'Test CA', issuerCN: 'Test Root', issuerKey: root.key, isCA: true })
+      const caB = await issueCertificate({ subjectCN: 'Test CA', issuerCN: 'Test Root', issuerKey: root.key, isCA: true })
+      const leaf = await issueCertificate({ subjectCN: 'Test Signer', issuerCN: 'Test CA', issuerKey: caB.key })
+
+      const chain = await buildCertificateChain(leaf.parsed, [caA.parsed, caB.parsed])
+      expect(chain.isTrusted).toBe(true)
+      expect(chain.certificates[1].fingerprint).toBe(caB.parsed.fingerprint)
+    })
+
+    it('refuses an issuer that is not a CA', async () => {
+      const root = await issueCertificate({ subjectCN: 'Test Root', isCA: true })
+      await addCustomTrustAnchor(root.pem)
+      const notCa = await issueCertificate({ subjectCN: 'Test Not CA', issuerCN: 'Test Root', issuerKey: root.key })
+      const leaf = await issueCertificate({ subjectCN: 'Test Signer', issuerCN: 'Test Not CA', issuerKey: notCa.key })
+
+      const chain = await buildCertificateChain(leaf.parsed, [notCa.parsed])
+      expect(chain.isTrusted).toBe(false)
+    })
+
+    it('enforces pathLenConstraint', async () => {
+      const root = await issueCertificate({ subjectCN: 'Test Root', isCA: true })
+      await addCustomTrustAnchor(root.pem)
+      const ca1 = await issueCertificate({ subjectCN: 'Test CA 1', issuerCN: 'Test Root', issuerKey: root.key, isCA: true, pathLen: 0 })
+      const ca2 = await issueCertificate({ subjectCN: 'Test CA 2', issuerCN: 'Test CA 1', issuerKey: ca1.key, isCA: true })
+      const leaf = await issueCertificate({ subjectCN: 'Test Signer', issuerCN: 'Test CA 2', issuerKey: ca2.key })
+
+      const chain = await buildCertificateChain(leaf.parsed, [ca1.parsed, ca2.parsed])
+      expect(chain.isTrusted).toBe(false)
+    })
+
+    it('reports an incomplete chain when the issuer is missing', async () => {
+      const ca = await issueCertificate({ subjectCN: 'Test CA', isCA: true })
+      const leaf = await issueCertificate({ subjectCN: 'Test Signer', issuerCN: 'Test CA', issuerKey: ca.key })
+      const chain = await buildCertificateChain(leaf.parsed, [])
       expect(chain.isComplete).toBe(false)
       expect(chain.isTrusted).toBe(false)
       expect(chain.root).toBeNull()
     })
 
-    it('should not create cycles when duplicate certs are in pool', async () => {
-      const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
-
-      const root = createMockCert({
-        subject: 'CN=Root CA',
-        issuer: 'CN=Root CA',
-        isSelfSigned: true,
-        fingerprint: 'root-fp',
-      })
-
-      const endEntity = createMockCert({
-        subject: 'CN=Signer',
-        issuer: 'CN=Root CA',
-        isSelfSigned: false,
-        fingerprint: 'ee-fp',
-      })
-
-      // Provide the root twice
-      const chain = await buildCertificateChain(endEntity, [root, root])
-
-      expect(chain.certificates.length).toBeLessThanOrEqual(3)
+    it('reports a complete but untrusted chain for an unknown self-signed root', async () => {
+      const root = await issueCertificate({ subjectCN: 'Test Unknown Root', isCA: true })
+      const leaf = await issueCertificate({ subjectCN: 'Test Signer', issuerCN: 'Test Unknown Root', issuerKey: root.key })
+      const chain = await buildCertificateChain(leaf.parsed, [root.parsed])
       expect(chain.isComplete).toBe(true)
-    })
-
-    it('should stop building chain when exceeding max length (10)', async () => {
-      const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
-
-      // Create a long chain of CAs
-      const certs: ParsedCertificate[] = []
-      for (let i = 0; i < 15; i++) {
-        certs.push(
-          createMockCert({
-            subject: `CN=CA-${i}`,
-            issuer: `CN=CA-${i + 1}`,
-            isSelfSigned: false,
-            fingerprint: `fp-${i}`,
-          })
-        )
-      }
-
-      const endEntity = createMockCert({
-        subject: 'CN=Signer',
-        issuer: 'CN=CA-0',
-        isSelfSigned: false,
-        fingerprint: 'ee-fp',
-      })
-
-      const chain = await buildCertificateChain(endEntity, certs)
-
-      // Should cap at 11 (1 end entity + 10 iterations max)
-      expect(chain.certificates.length).toBeLessThanOrEqual(11)
-    })
-
-    it('should skip mismatched authority key identifiers', async () => {
-      const { buildCertificateChain } = await import('@/core/certificate/chain-builder')
-
-      const wrongIssuer = createMockCert({
-        subject: 'CN=Root CA',
-        issuer: 'CN=Root CA',
-        isSelfSigned: true,
-        fingerprint: 'wrong-fp',
-        subjectKeyIdentifier: 'wrong-ski',
-      })
-
-      const endEntity = createMockCert({
-        subject: 'CN=Signer',
-        issuer: 'CN=Root CA',
-        isSelfSigned: false,
-        fingerprint: 'ee-fp',
-        authorityKeyIdentifier: 'correct-ski',
-      })
-
-      const chain = await buildCertificateChain(endEntity, [wrongIssuer])
-
-      // Should not match because AKI doesn't match SKI
-      expect(chain.certificates).toHaveLength(1)
-      expect(chain.isComplete).toBe(false)
+      expect(chain.isTrusted).toBe(false)
+      expect(chain.root?.fingerprint).toBe(root.parsed.fingerprint)
     })
   })
 

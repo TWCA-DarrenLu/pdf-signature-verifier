@@ -57,6 +57,8 @@ export interface SignerInfo {
   messageDigest: Uint8Array | null
   signingTime: Date | null
   signingCertificateHash?: string
+  /** Hash algorithm of signingCertificateHash (SHA-1 for v1, declared/SHA-256 for v2) */
+  signingCertificateHashAlgorithm?: string
 }
 
 export interface SignedAttribute {

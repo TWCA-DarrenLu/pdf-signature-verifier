@@ -1,0 +1,106 @@
+name: Release to browser stores
+
+# Push a version tag (vX.Y.Z, equal to package.json) or run it by hand.
+# The publish job runs in the "store" environment, so GitHub waits for the
+# environment's reviewer to approve before anything is uploaded.
+# Setup and release steps: docs/release.md
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      store:
+        description: Stores to submit to
+        type: choice
+        options: [all, chrome, edge]
+        default: all
+      publish_type:
+        description: 'Chrome: go live after approval, or stage it for a manual publish'
+        type: choice
+        options: [DEFAULT_PUBLISH, STAGED_PUBLISH]
+        default: DEFAULT_PUBLISH
+      check_only:
+        description: Only check the setup (nothing is uploaded)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      zip: ${{ steps.zip.outputs.name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # to check that a tag points at master
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tag matches package.json and points at master
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "Tag $GITHUB_REF_NAME is not on master"
+            exit 1
+          fi
+      - run: npm run compile
+      - run: npm run test:unit
+      - run: npm run zip
+      # upload-artifact skips hidden paths such as .output/ by default
+      - id: zip
+        run: |
+          mkdir -p package
+          cp .output/*-chrome.zip package/
+          echo "name=$(basename package/*-chrome.zip)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: extension
+          path: package/*-chrome.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: store
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          name: extension
+          path: dist
+      - name: Upload and submit for review
+        env:
+          ZIP: dist/${{ needs.build.outputs.zip }}
+          STORE: ${{ inputs.store || 'all' }}
+          PUBLISH_TYPE: ${{ inputs.publish_type || 'DEFAULT_PUBLISH' }}
+          CHECK_ONLY: ${{ inputs.check_only && 'true' || 'false' }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          CWS_SERVICE_ACCOUNT_JSON: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+          EDGE_PRODUCT_ID: ${{ secrets.EDGE_PRODUCT_ID }}
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+        run: |
+          set -- --zip "$ZIP" --store "$STORE" --publish-type "$PUBLISH_TYPE"
+          if [ "$CHECK_ONLY" = "true" ]; then set -- "$@" --check; fi
+          node scripts/release/publish.mjs "$@"

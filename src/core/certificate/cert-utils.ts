@@ -5,13 +5,17 @@ import type {
   KeyUsageFlags,
   AuthorityInfoAccess,
 } from '@/types'
+import { toArrayBuffer } from '../bytes'
 
 const { Certificate } = pkijs
 
 /**
  * Parse a pkijs Certificate into a structured format
  */
-export async function parseCertificate(cert: pkijs.Certificate): Promise<ParsedCertificate> {
+export async function parseCertificate(
+  cert: pkijs.Certificate,
+  originalDer?: Uint8Array
+): Promise<ParsedCertificate> {
   const subject = formatDN(cert.subject)
   const issuer = formatDN(cert.issuer)
   const serialNumber = bufferToHex(cert.serialNumber.valueBlock.valueHexView)
@@ -21,9 +25,10 @@ export async function parseCertificate(cert: pkijs.Certificate): Promise<ParsedC
   // Check if self-signed
   const isSelfSigned = subject === issuer
 
-  // Compute fingerprint (SHA-256 of DER)
-  const der = cert.toSchema().toBER()
-  const fingerprint = await computeFingerprint(der)
+  // Fingerprint = SHA-256 of the DER as received (re-encoding is only a
+  // fallback for certificates built in code).
+  const der = originalDer ?? new Uint8Array(cert.toSchema().toBER())
+  const fingerprint = await computeFingerprint(toArrayBuffer(der))
 
   // Get public key
   let publicKey: CryptoKey | null = null
@@ -35,6 +40,8 @@ export async function parseCertificate(cert: pkijs.Certificate): Promise<ParsedC
 
   // Parse extensions
   let isCA = false
+  let pathLenConstraint: number | null = null
+  let keyUsagePresent = false
   let keyUsage: KeyUsageFlags = createEmptyKeyUsage()
   let extKeyUsage: string[] = []
   let authorityInfoAccess: AuthorityInfoAccess | null = null
@@ -48,11 +55,18 @@ export async function parseCertificate(cert: pkijs.Certificate): Promise<ParsedC
         case '2.5.29.19': // BasicConstraints
           if (ext.parsedValue instanceof pkijs.BasicConstraints) {
             isCA = ext.parsedValue.cA ?? false
+            const pathLen = ext.parsedValue.pathLenConstraint
+            if (typeof pathLen === 'number') {
+              pathLenConstraint = pathLen
+            } else if (pathLen instanceof asn1js.Integer) {
+              pathLenConstraint = pathLen.valueBlock.valueDec
+            }
           }
           break
 
         case '2.5.29.15': // KeyUsage
           keyUsage = parseKeyUsage(ext)
+          keyUsagePresent = true
           break
 
         case '2.5.29.37': // ExtKeyUsage
@@ -88,6 +102,7 @@ export async function parseCertificate(cert: pkijs.Certificate): Promise<ParsedC
 
   return {
     raw: cert,
+    der,
     subject,
     issuer,
     serialNumber,
@@ -97,6 +112,8 @@ export async function parseCertificate(cert: pkijs.Certificate): Promise<ParsedC
     fingerprint,
     isCA,
     isSelfSigned,
+    pathLenConstraint,
+    keyUsagePresent,
     keyUsage,
     extKeyUsage,
     authorityInfoAccess,
@@ -118,14 +135,41 @@ export async function parseCertificateFromBytes(data: Uint8Array): Promise<Parse
     derData = pemToDer(text)
   }
 
-  const asn1 = asn1js.fromBER(derData.buffer)
+  const asn1 = asn1js.fromBER(toArrayBuffer(derData))
   if (asn1.offset === -1) {
     throw new Error('Failed to parse certificate ASN.1')
   }
 
   const cert = new Certificate({ schema: asn1.result })
-  return parseCertificate(cert)
+  return parseCertificate(cert, derData)
 }
+
+/**
+ * Parse whatever an AIA caIssuers URL returns: a single DER/PEM certificate
+ * or a PKCS#7 "certs-only" bundle (.p7b / .p7c, e.g. GRCA's IssuedToThisCA.p7b).
+ */
+export async function parseCertificatesFromBundle(data: Uint8Array): Promise<ParsedCertificate[]> {
+  try {
+    return [await parseCertificateFromBytes(data)]
+  } catch {
+    // not a bare certificate — try PKCS#7
+  }
+  try {
+    const asn1 = asn1js.fromBER(toArrayBuffer(data))
+    if (asn1.offset === -1) return []
+    const contentInfo = new pkijs.ContentInfo({ schema: asn1.result })
+    const signedData = new pkijs.SignedData({ schema: contentInfo.content })
+    const out: ParsedCertificate[] = []
+    for (const c of signedData.certificates ?? []) {
+      if (c instanceof Certificate) out.push(await parseCertificate(c))
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+export { toArrayBuffer }
 
 /**
  * Convert PEM to DER

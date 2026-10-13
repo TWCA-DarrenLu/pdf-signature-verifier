@@ -2,6 +2,7 @@ import * as pkijs from 'pkijs'
 import type { SignatureVerificationResult, SignatureAlgorithm } from '@/types'
 import type { ParsedCertificate } from '@/types'
 import { normalizeDigestAlgorithm } from './digest-verifier'
+import { asBufferSource } from '../bytes'
 
 /**
  * Verify a digital signature using Web Crypto API
@@ -35,8 +36,8 @@ export async function verifySignature(
     const isValid = await crypto.subtle.verify(
       algorithm,
       publicKey,
-      signatureValue,
-      signedData
+      asBufferSource(signatureValue),
+      asBufferSource(signedData)
     )
 
     return {

@@ -8,10 +8,11 @@ import type {
   UnsignedAttribute,
   EmbeddedTimestamp,
   EmbeddedRevocationInfo,
-  OID_MAP,
 } from '@/types'
 import { parseCertificate } from '../certificate/cert-utils'
+import { toArrayBuffer } from '../bytes'
 import type { ParsedCertificate } from '@/types'
+import { findSignerCertificate, getEncapsulatedContentBytes } from './pki-verify'
 
 const { ContentInfo, SignedData, Certificate } = pkijs
 
@@ -35,7 +36,7 @@ const OID = {
  */
 export async function parsePkcs7(data: Uint8Array): Promise<ParsedPkcs7> {
   // Parse ASN.1 structure
-  const asn1 = asn1js.fromBER(data.buffer)
+  const asn1 = asn1js.fromBER(toArrayBuffer(data))
   if (asn1.offset === -1) {
     throw new Error('Failed to parse ASN.1 structure')
   }
@@ -51,12 +52,14 @@ export async function parsePkcs7(data: Uint8Array): Promise<ParsedPkcs7> {
   // Parse SignedData
   const signedData = new SignedData({ schema: contentInfo.content })
 
-  // Parse certificates
+  // Parse certificates (keeping each one's original DER)
   const certificates: ParsedCertificate[] = []
   if (signedData.certificates) {
-    for (const cert of signedData.certificates) {
+    const ders = originalCertificateDers(asn1.result)
+    const aligned = ders.length === signedData.certificates.length
+    for (const [i, cert] of signedData.certificates.entries()) {
       if (cert instanceof Certificate) {
-        const parsed = await parseCertificate(cert)
+        const parsed = await parseCertificate(cert, aligned ? ders[i] : undefined)
         certificates.push(parsed)
       }
     }
@@ -69,15 +72,11 @@ export async function parsePkcs7(data: Uint8Array): Promise<ParsedPkcs7> {
     signerInfos.push(signerInfo)
   }
 
-  // Extract embedded timestamp from unsigned attributes
+  // Signature timestamp of the first SignerInfo — the one that is verified.
   let embeddedTimestamp: EmbeddedTimestamp | null = null
-  for (const si of signerInfos) {
-    const tsAttr = si.unsignedAttributes.find(
-      (attr) => attr.oid === OID.TIMESTAMP_TOKEN
-    )
-    if (tsAttr && tsAttr.value instanceof Uint8Array) {
-      embeddedTimestamp = await parseTimestampToken(tsAttr.value)
-    }
+  const tsAttr = signerInfos[0]?.unsignedAttributes.find((attr) => attr.oid === OID.TIMESTAMP_TOKEN)
+  if (tsAttr && tsAttr.value instanceof Uint8Array) {
+    embeddedTimestamp = await parseTimestampToken(tsAttr.value)
   }
 
   // Extract embedded revocation info
@@ -97,26 +96,10 @@ async function parseSignerInfo(
   si: pkijs.SignerInfo,
   certificates: ParsedCertificate[]
 ): Promise<SignerInfo> {
-  // Find signer certificate
-  let signerCertificate: ParsedCertificate | null = null
-
-  if (si.sid instanceof pkijs.IssuerAndSerialNumber) {
-    const issuerSerial = si.sid
-    const sidSerialHex = bufferToHex(issuerSerial.serialNumber.valueBlock.valueHexView)
-    signerCertificate =
-      certificates.find((cert) => cert.serialNumber === sidSerialHex) || null
-  } else if (si.sid instanceof asn1js.OctetString) {
-    // SubjectKeyIdentifier
-    const ski = bufferToHex(si.sid.valueBlock.valueHexView)
-    signerCertificate =
-      certificates.find((cert) => cert.subjectKeyIdentifier === ski) || null
-  }
-
-  // If still not found, try matching by subject
-  if (!signerCertificate && certificates.length > 0) {
-    // Usually the first certificate is the signer's
-    signerCertificate = certificates[0]
-  }
+  // Find signer certificate by sid (issuer + serial, or SKI) — no guessing.
+  const rawSigner = findSignerCertificate(si, certificates.map((c) => c.raw))
+  const signerCertificate: ParsedCertificate | null =
+    certificates.find((cert) => cert.raw === rawSigner) ?? null
 
   // Get digest algorithm
   const digestAlgorithm = getAlgorithmName(si.digestAlgorithm.algorithmId)
@@ -132,6 +115,7 @@ async function parseSignerInfo(
   let messageDigest: Uint8Array | null = null
   let signingTime: Date | null = null
   let signingCertificateHash: string | undefined
+  let signingCertificateHashAlgorithm: string | undefined
 
   if (si.signedAttrs) {
     for (const attr of si.signedAttrs.attributes) {
@@ -152,7 +136,9 @@ async function parseSignerInfo(
 
         // CAdES: extract certHash from SigningCertificate or SigningCertificateV2
         if (oid === OID.SIGNING_CERTIFICATE_V2 || oid === OID.SIGNING_CERTIFICATE) {
-          signingCertificateHash = extractSigningCertificateHash(attr.values[0])
+          const essCert = extractSigningCertificateHash(attr.values[0], oid === OID.SIGNING_CERTIFICATE_V2)
+          signingCertificateHash = essCert?.hash
+          signingCertificateHashAlgorithm = essCert?.algorithm
         }
       }
 
@@ -192,12 +178,13 @@ async function parseSignerInfo(
     messageDigest,
     signingTime,
     signingCertificateHash,
+    signingCertificateHashAlgorithm,
   }
 }
 
 async function parseTimestampToken(data: Uint8Array): Promise<EmbeddedTimestamp | null> {
   try {
-    const asn1 = asn1js.fromBER(data.buffer)
+    const asn1 = asn1js.fromBER(toArrayBuffer(data))
     if (asn1.offset === -1) {
       return null
     }
@@ -214,8 +201,11 @@ async function parseTimestampToken(data: Uint8Array): Promise<EmbeddedTimestamp 
       return null
     }
 
-    const tstInfoData = tspSignedData.encapContentInfo.eContent.valueBlock.valueHexView
-    const tstInfoAsn1 = asn1js.fromBER(tstInfoData)
+    const tstInfoData = getEncapsulatedContentBytes(tspSignedData)
+    if (!tstInfoData) {
+      return null
+    }
+    const tstInfoAsn1 = asn1js.fromBER(toArrayBuffer(tstInfoData))
     if (tstInfoAsn1.offset === -1) {
       return null
     }
@@ -270,15 +260,17 @@ async function parseTimestampToken(data: Uint8Array): Promise<EmbeddedTimestamp 
     }
     const time = genTimeItem.toDate()
 
-    // Get TSA name from certificates
+    // TSA name from the certificate the SignerInfo actually refers to
     let issuer = t('core.timestampVerifier.unknownTsa')
-    if (tspSignedData.certificates && tspSignedData.certificates.length > 0) {
-      const tsaCert = tspSignedData.certificates[0]
-      if (tsaCert instanceof Certificate) {
-        const parsed = await parseCertificate(tsaCert)
-        const cn = parsed.subject.match(/CN=([^,]+)/)
-        issuer = cn ? cn[1] : parsed.subject
-      }
+    const tsaCerts = (tspSignedData.certificates ?? []).filter(
+      (c): c is pkijs.Certificate => c instanceof Certificate
+    )
+    const tsaSignerInfo = tspSignedData.signerInfos[0]
+    const tsaCert = tsaSignerInfo ? findSignerCertificate(tsaSignerInfo, tsaCerts) : null
+    if (tsaCert) {
+      const parsed = await parseCertificate(tsaCert)
+      const cn = parsed.subject.match(/CN=([^,]+)/)
+      issuer = cn ? cn[1] : parsed.subject
     }
 
     return {
@@ -293,14 +285,36 @@ async function parseTimestampToken(data: Uint8Array): Promise<EmbeddedTimestamp 
   }
 }
 
+/**
+ * Original DER of each SignedData.certificates entry, in order.
+ * ContentInfo ::= SEQUENCE { contentType, [0] EXPLICIT SignedData }
+ * SignedData  ::= SEQUENCE { version, digestAlgorithms, encapContentInfo,
+ *                            certificates [0] IMPLICIT SET OF ..., ... }
+ */
+function originalCertificateDers(contentInfo: asn1js.AsnType): Uint8Array[] {
+  try {
+    const explicit = (contentInfo as asn1js.Sequence).valueBlock.value[1] as asn1js.Constructed
+    const signedData = explicit.valueBlock.value[0] as asn1js.Sequence
+    const certs = signedData.valueBlock.value.find(
+      (n) => n.idBlock.tagClass === 3 && n.idBlock.tagNumber === 0
+    ) as asn1js.Constructed | undefined
+    return certs ? certs.valueBlock.value.map((n) => new Uint8Array(n.valueBeforeDecodeView)) : []
+  } catch {
+    return []
+  }
+}
+
 function extractRevocationInfo(signedData: pkijs.SignedData): EmbeddedRevocationInfo | null {
   const ocspResponses: Uint8Array[] = []
   const crls: Uint8Array[] = []
 
-  // Check for Adobe revocation info in signer info unsigned attributes
+  // Adobe revocation info (adbe-revocationInfoArchival). ISO 32000-1 §12.8.3.3.2
+  // places it in the SIGNED attributes (Acrobat, TWCA signing services);
+  // some producers put it in the unsigned attributes — accept both.
   for (const si of signedData.signerInfos) {
-    if (si.unsignedAttrs) {
-      for (const attr of si.unsignedAttrs.attributes) {
+    for (const attrs of [si.signedAttrs, si.unsignedAttrs]) {
+      if (!attrs) continue
+      for (const attr of attrs.attributes) {
         if (attr.type === OID.ADOBE_REVOCATION_INFO_ARCHIVAL) {
           for (const val of attr.values) {
             if (val instanceof asn1js.Sequence) {
@@ -333,49 +347,72 @@ function extractFromRevocationInfoArchival(
   ocspResponses: Uint8Array[],
   crls: Uint8Array[]
 ): void {
-  // Adobe Revocation Info Archival structure
-  // Contains OCSP responses and CRLs
+  // RevocationInfoArchival ::= SEQUENCE {
+  //   crl  [0] EXPLICIT SEQUENCE OF CRLs OPTIONAL,
+  //   ocsp [1] EXPLICIT SEQUENCE OF OCSPResponse OPTIONAL, ... }
+  // Some producers omit the inner SEQUENCE OF; accept both shapes.
   for (const item of seq.valueBlock.value) {
-    if (item instanceof asn1js.Constructed) {
-      const tagNumber = item.idBlock.tagNumber
-
-      if (tagNumber === 0) {
-        // CRLs
-        for (const crl of item.valueBlock.value) {
-          crls.push(new Uint8Array(crl.toBER()))
-        }
-      } else if (tagNumber === 1) {
-        // OCSP Responses
-        for (const ocsp of item.valueBlock.value) {
-          ocspResponses.push(new Uint8Array(ocsp.toBER()))
+    if (!(item instanceof asn1js.Constructed) || item.idBlock.tagClass !== 3) continue
+    const tagNumber = item.idBlock.tagNumber
+    const target = tagNumber === 0 ? crls : tagNumber === 1 ? ocspResponses : null
+    if (!target) continue
+    const looksLikeElement = tagNumber === 0 ? looksLikeCrl : looksLikeOcspResponse
+    for (const child of item.valueBlock.value) {
+      if (looksLikeElement(child)) {
+        target.push(new Uint8Array(child.toBER()))
+      } else if (child instanceof asn1js.Sequence) {
+        for (const element of child.valueBlock.value) {
+          target.push(new Uint8Array(element.toBER()))
         }
       }
     }
   }
 }
 
+/** CertificateList ::= SEQUENCE { tbsCertList SEQUENCE, signatureAlgorithm SEQUENCE, signature BIT STRING } */
+function looksLikeCrl(node: asn1js.AsnType): boolean {
+  if (!(node instanceof asn1js.Sequence)) return false
+  const v = node.valueBlock.value
+  return v.length === 3 && v[0] instanceof asn1js.Sequence && v[2] instanceof asn1js.BitString
+}
+
+/** OCSPResponse ::= SEQUENCE { responseStatus ENUMERATED, responseBytes [0] EXPLICIT ... OPTIONAL } */
+function looksLikeOcspResponse(node: asn1js.AsnType): boolean {
+  if (!(node instanceof asn1js.Sequence)) return false
+  return node.valueBlock.value[0] instanceof asn1js.Enumerated
+}
+
 /**
  * Extract certHash from SigningCertificate or SigningCertificateV2 attribute.
  * Structure: SEQUENCE { SEQUENCE OF ESSCertIDv2 { SEQUENCE { hashAlgorithm?, certHash OCTET STRING, ... } }, ... }
  */
-function extractSigningCertificateHash(value: asn1js.LocalBaseBlock): string | undefined {
+function extractSigningCertificateHash(
+  value: asn1js.AsnType,
+  isV2: boolean
+): { hash: string; algorithm: string } | undefined {
   try {
+    // SigningCertificate   ::= SEQUENCE { certs SEQUENCE OF ESSCertID, ... }
+    //   ESSCertID          ::= SEQUENCE { certHash OCTET STRING (SHA-1), ... }
     // SigningCertificateV2 ::= SEQUENCE { certs SEQUENCE OF ESSCertIDv2, ... }
-    // ESSCertIDv2 ::= SEQUENCE { hashAlgorithm AlgorithmIdentifier DEFAULT sha-256, certHash OCTET STRING, ... }
+    //   ESSCertIDv2        ::= SEQUENCE { hashAlgorithm DEFAULT sha-256, certHash OCTET STRING, ... }
     if (!(value instanceof asn1js.Sequence)) return undefined
 
     const certs = value.valueBlock.value[0]
     if (!(certs instanceof asn1js.Sequence)) return undefined
 
-    // Get first ESSCertIDv2
     const firstCertId = certs.valueBlock.value[0]
     if (!(firstCertId instanceof asn1js.Sequence)) return undefined
 
-    // certHash is the first OCTET STRING in the sequence
-    // (hashAlgorithm may be omitted if default SHA-256)
+    let algorithm = isV2 ? 'SHA-256' : 'SHA-1'
     for (const item of firstCertId.valueBlock.value) {
+      if (isV2 && item instanceof asn1js.Sequence) {
+        const oid = item.valueBlock.value[0]
+        if (oid instanceof asn1js.ObjectIdentifier) {
+          algorithm = getAlgorithmName(oid.valueBlock.toString())
+        }
+      }
       if (item instanceof asn1js.OctetString) {
-        return bufferToHex(item.valueBlock.valueHexView)
+        return { hash: bufferToHex(item.valueBlock.valueHexView), algorithm }
       }
     }
 
@@ -385,7 +422,7 @@ function extractSigningCertificateHash(value: asn1js.LocalBaseBlock): string | u
   }
 }
 
-function parseSigningTime(value: asn1js.LocalBaseBlock): Date | null {
+function parseSigningTime(value: asn1js.AsnType): Date | null {
   if (value instanceof asn1js.UTCTime) {
     return value.toDate()
   }
@@ -395,7 +432,7 @@ function parseSigningTime(value: asn1js.LocalBaseBlock): Date | null {
   return null
 }
 
-function parseAttributeValue(oid: string, value: asn1js.LocalBaseBlock): unknown {
+function parseAttributeValue(_oid: string, value: asn1js.AsnType): unknown {
   if (value instanceof asn1js.OctetString) {
     return new Uint8Array(value.valueBlock.valueHexView)
   }
@@ -460,13 +497,12 @@ export function getSignedAttributesData(signedData: pkijs.SignedData, signerInde
     return null
   }
 
-  // Get the DER encoding of the signed attributes
-  const signedAttrs = signerInfo.signedAttrs
-  const encoded = signedAttrs.toSchema().toBER()
-
-  // Need to change the tag from IMPLICIT [0] to SET
-  const result = new Uint8Array(encoded)
-  result[0] = 0x31 // SET tag
-
-  return result
+  // Original encoding as received (re-encoding can change the bytes);
+  // pkijs already rewrites the IMPLICIT [0] tag to SET (0x31). Attributes
+  // built in code have no original encoding — encode them.
+  const original = signerInfo.signedAttrs.encodedValue
+  if (original && original.byteLength > 0) return new Uint8Array(original)
+  const encoded = new Uint8Array(signerInfo.signedAttrs.toSchema().toBER())
+  encoded[0] = 0x31
+  return encoded
 }

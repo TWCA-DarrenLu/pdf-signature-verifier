@@ -30,9 +30,9 @@ export default defineConfig({
   }),
   manifest: ({ browser }) => ({
     name: 'PDFtrust - PDF 數位簽章驗證工具',
-    description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Supports global CAs.',
-    version: '1.0.3',
-    permissions: ['activeTab', 'storage', 'downloads', 'alarms'],
+    description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Taiwan PKI (GRCA, TWCA, Chunghwa).',
+    // version comes from package.json (single source; the release workflow checks the tag against it)
+    permissions: ['activeTab', 'storage', 'downloads', 'alarms', 'contextMenus'],
     host_permissions: ['<all_urls>'],
     icons: {
       16: 'icon-16.png',

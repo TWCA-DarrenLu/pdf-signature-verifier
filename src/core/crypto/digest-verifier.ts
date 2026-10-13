@@ -1,4 +1,5 @@
 import type { DigestResult, DigestAlgorithm } from '@/types'
+import { asBufferSource } from '../bytes'
 
 /**
  * Compute digest of data using Web Crypto API
@@ -7,7 +8,7 @@ export async function computeDigest(
   algorithm: DigestAlgorithm,
   data: Uint8Array
 ): Promise<Uint8Array> {
-  const hashBuffer = await crypto.subtle.digest(algorithm, data)
+  const hashBuffer = await crypto.subtle.digest(algorithm, asBufferSource(data))
   return new Uint8Array(hashBuffer)
 }
 

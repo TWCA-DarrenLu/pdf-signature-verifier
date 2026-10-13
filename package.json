@@ -1,6 +1,6 @@
 {
   "name": "pdf-signature-verifier",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Browser extension for verifying PDF digital signatures with Taiwan PKI support",
   "type": "module",
   "scripts": {

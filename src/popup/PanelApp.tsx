@@ -1,12 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { VerificationResult } from '@/types'
 import { StatusBadge, SignatureList, ExportButton } from './components'
 import { DocumentIcon } from './components/icons'
 import { t, setLocale, detectBrowserLocale, resolveSummary } from '@/i18n'
+import { restoreDates } from './restore-dates'
 
 export function PanelApp() {
   const [result, setResult] = useState<VerificationResult | null>(null)
   const [loading, setLoading] = useState(true)
+  const [rechecking, setRechecking] = useState(false)
+  const [recheckError, setRecheckError] = useState<string | null>(null)
+  /** Inline mode: the page says whether the result can be fetched again (not for local files). */
+  const [inlineCanRecheck, setInlineCanRecheck] = useState(false)
+  /** Popup-window mode: why there is no result (right-click verify that failed). */
+  const [windowError, setWindowError] = useState<string | null>(null)
+  /** Popup-window mode: the remote PDF behind the result, used for re-checking. */
+  const sourceRef = useRef<{ url: string; fileName: string } | null>(null)
 
   useEffect(() => {
     const initLocale = async () => {
@@ -34,11 +43,16 @@ export function PanelApp() {
 
     if (isPopupWindow) {
       // Opened as popup window — read result from local storage
-      chrome.storage.local.get('pdf-panel-result').then((stored: Record<string, unknown>) => {
+      chrome.storage.local.get(['pdf-panel-result', 'pdf-panel-source', 'pdf-panel-error']).then((stored: Record<string, unknown>) => {
         const raw = stored['pdf-panel-result'] as VerificationResult | undefined
+        if (typeof stored['pdf-panel-error'] === 'string') {
+          setWindowError(stored['pdf-panel-error'])
+          chrome.storage.local.remove('pdf-panel-error')
+        }
+        sourceRef.current = (stored['pdf-panel-source'] as { url: string; fileName: string } | null) ?? null
         if (raw) {
           setResult(restoreDates(raw))
-          chrome.storage.local.remove('pdf-panel-result')
+          chrome.storage.local.remove(['pdf-panel-result', 'pdf-panel-source'])
         }
         setLoading(false)
       }).catch(() => {
@@ -49,12 +63,19 @@ export function PanelApp() {
 
     // Embedded as iframe — listen for verification results from the content script
     const handleMessage = (event: MessageEvent) => {
+      if (event.source !== window.parent) return
       if (event.data?.type === 'pdf-verification-result') {
         const raw = event.data.result as VerificationResult
         // Restore Date objects from serialized JSON
         const restored = restoreDates(raw)
         setResult(restored)
+        setInlineCanRecheck(event.data.canRecheck === true)
         setLoading(false)
+        setRechecking(false)
+        setRecheckError(null)
+      } else if (event.data?.type === 'pdf-verification-error') {
+        setRechecking(false)
+        setRecheckError(String(event.data.error ?? ''))
       }
     }
 
@@ -73,6 +94,39 @@ export function PanelApp() {
       clearTimeout(timeout)
     }
   }, [])
+
+  const isPopupWindow = window.location.search.includes('source=popup')
+  // Inline panels re-check through the page; popup windows need the stored source URL
+  const canRecheck = isPopupWindow ? sourceRef.current !== null : inlineCanRecheck
+
+  const handleRecheck = async () => {
+    if (rechecking) return
+    setRechecking(true)
+    setRecheckError(null)
+    if (!isPopupWindow) {
+      window.parent.postMessage({ type: 'pdf-panel-recheck' }, '*')
+      return
+    }
+    const source = sourceRef.current
+    if (!source) return
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        action: 'verify-pdf-url',
+        url: source.url,
+        fileName: source.fileName,
+        fresh: true,
+      })) as { result?: VerificationResult; error?: string } | undefined
+      if (response?.result) {
+        setResult(restoreDates(response.result))
+      } else {
+        setRecheckError(response?.error ?? t('verification.noResult'))
+      }
+    } catch (error) {
+      setRecheckError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setRechecking(false)
+    }
+  }
 
   const handleClose = () => {
     const isPopupWindow = window.location.search.includes('source=popup')
@@ -102,6 +156,7 @@ export function PanelApp() {
             <DocumentIcon className="w-10 h-10 text-gray-400" />
           </div>
           <div>{t('verification.noResult')}</div>
+          {windowError && <div className="mt-2 text-sm text-red-600">{windowError}</div>}
         </div>
       </div>
     )
@@ -114,14 +169,14 @@ export function PanelApp() {
         <h1 className="text-base font-semibold text-gray-900">{t('panel.title')}</h1>
         <div className="flex items-center gap-2">
           <a
-            href="mailto:bussiness@darrenlu.com"
+            href="mailto:business@darrenlu.com"
             className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 bg-gray-100 rounded-md hover:bg-gray-200 transition-colors"
             title={t('app.businessContact')}
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
             </svg>
-            bussiness@darrenlu.com
+            business@darrenlu.com
           </a>
           <button
             onClick={handleClose}
@@ -149,9 +204,26 @@ export function PanelApp() {
         <div className="p-3 rounded-lg bg-gray-50 border border-gray-200">
           <div className="flex items-center justify-between">
             <StatusBadge status={result.status} size="lg" />
-            <ExportButton result={result} />
+            <div className="flex items-center gap-2">
+              {canRecheck && (
+                <button
+                  onClick={handleRecheck}
+                  disabled={rechecking}
+                  data-testid="panel-recheck"
+                  title={t('verification.recheckHint')}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-60 transition-colors"
+                >
+                  <svg className={`w-3.5 h-3.5 ${rechecking ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  {rechecking ? t('verification.loading') : t('verification.recheck')}
+                </button>
+              )}
+              <ExportButton result={result} />
+            </div>
           </div>
           <div className="mt-2 text-sm text-gray-600">{resolveSummary(result)}</div>
+          {recheckError && <div className="mt-1 text-xs text-red-600">{recheckError}</div>}
         </div>
 
         {/* Signature List */}
@@ -173,28 +245,4 @@ export function PanelApp() {
       </footer>
     </div>
   )
-}
-
-/**
- * Restore Date objects from serialized JSON (chrome.storage serializes Dates as strings)
- */
-function restoreDates(result: VerificationResult): VerificationResult {
-  return {
-    ...result,
-    signatures: result.signatures.map((sig) => ({
-      ...sig,
-      signedAt: sig.signedAt ? new Date(sig.signedAt) : null,
-      certificateChain: sig.certificateChain.map((cert) => ({
-        ...cert,
-        notBefore: new Date(cert.notBefore),
-        notAfter: new Date(cert.notAfter),
-      })),
-      timestampInfo: sig.timestampInfo
-        ? {
-            ...sig.timestampInfo,
-            time: new Date(sig.timestampInfo.time),
-          }
-        : undefined,
-    })),
-  }
 }

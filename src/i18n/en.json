@@ -7,7 +7,7 @@
   },
   "status": {
     "trusted": "Trusted",
-    "unknown": "Unknown Source",
+    "unknown": "Not Fully Verified",
     "failed": "Verification Failed"
   },
   "verification": {
@@ -17,7 +17,9 @@
     "noResult": "No verification result",
     "errorTitle": "Verification Failed",
     "retryButton": "Select Another File",
-    "verifyOther": "Verify Another File"
+    "verifyOther": "Verify Another File",
+    "recheck": "Re-check",
+    "recheckHint": "Fetch the document again and check revocation online"
   },
   "panel": {
     "title": "Signature Verification Result",
@@ -27,12 +29,16 @@
     "title": "Signature",
     "valid": "Valid Signature",
     "invalid": "Invalid Signature",
-    "statusUnknown": "Unknown Signature",
+    "statusUnknown": "Not Fully Verified",
     "signer": "Signer: ",
     "signedAt": "Time: ",
     "reason": "Reason: ",
     "location": "Location: ",
-    "unknown": "Unknown"
+    "unknown": "Unknown",
+    "reasons": "Main reasons: ",
+    "validationBasis": "Validated at: ",
+    "validationByTimestamp": "timestamp time {time}",
+    "validationByCurrent": "current time (no trusted timestamp)"
   },
   "checks": {
     "title": "Verification Details",
@@ -50,7 +56,8 @@
     "trusted": "Trusted",
     "valid": "Valid",
     "notRevoked": "Not Revoked",
-    "complete": "Complete"
+    "complete": "Complete",
+    "skipped": "Skipped"
   },
   "certificate": {
     "chainTitle": "Certificate Chain",
@@ -87,10 +94,14 @@
   "settings": {
     "title": "Settings",
     "checkOnlineRevocation": "Check revocation status online",
-    "autoVerify": "Auto-verify PDFs on page",
+    "autoVerify": "Verify PDFs automatically when opened",
     "language": "Language",
     "langZhTW": "繁體中文",
-    "langEn": "English"
+    "langEn": "English",
+    "scopeAll": "All websites",
+    "scopeListed": "Only these sites",
+    "scopeOff": "Off",
+    "sitesPlaceholder": "One domain per line, e.g. twca.com.tw (subdomains included)"
   },
   "export": {
     "title": "Export Verification Report PDF",
@@ -104,7 +115,7 @@
     "verifying": "Verifying...",
     "trusted": "Trusted",
     "failed": "Failed",
-    "unknown": "Unknown",
+    "unknown": "Not fully verified",
     "error": "Error",
     "noResponse": "No response",
     "unknownError": "Unknown error",
@@ -119,7 +130,14 @@
     "pdfDetected": "PDF document detected",
     "dismiss": "Dismiss",
     "fileReadFailed": "Failed to read file",
-    "noFileSelected": "No file selected"
+    "noFileSelected": "No file selected",
+    "noSignatures": "No digital signatures",
+    "viewResult": "View result",
+    "cannotFetchPdf": "Could not fetch the PDF (the link may be single-use or expired). Download it and drop it into the extension.",
+    "localFileHint": "Local file: click \"Verify Signature\" to pick it, or drop it on this bar",
+    "dropHint": "Drop a downloaded PDF on this bar to verify it",
+    "dropHere": "Drop to verify this PDF",
+    "notPdf": "This is not a PDF file"
   },
   "core": {
     "integrity": {
@@ -137,7 +155,11 @@
       "cadesHashDetails": "Expected: {expected}, Actual: {actual}",
       "signedWithSubsequentChanges": "Signature is intact, but the document was changed afterwards (multi-signature or appended content)",
       "docMdpViolation": "DocMDP constraint violated",
-      "docMdpP1Violation": "This certification signature requires no further changes (P=1), but subsequent modifications were detected"
+      "docMdpP1Violation": "This certification signature requires no further changes (P=1), but subsequent modifications were detected",
+      "signingCertMismatch": "The certificate bound in the signed attributes does not match the signer certificate",
+      "unsupportedDigest": "Unsupported digest algorithm",
+      "subsequentSignatures": "Signature intact; later signatures or LTV data were added afterwards",
+      "unpermittedChanges": "Changes after signing are not permitted or could not be verified: {reason}"
     },
     "chain": {
       "signerCertNotFound": "Signer certificate not found",
@@ -148,7 +170,12 @@
       "chainIncomplete": "Certificate chain incomplete",
       "cannotBuildChain": "Cannot build complete certificate chain",
       "rootCa": "Root CA: {name}",
-      "unknownSigner": "Unknown"
+      "unknownSigner": "Unknown",
+      "selfSignedNotSupported": "Self-signed certificates are not supported",
+      "chainVerifiedUntrustedRoot": "Chain is complete and verified, but the root is not trusted",
+      "signerIsCa": "The signer certificate is a CA certificate and may not sign documents",
+      "keyUsageNotForSigning": "The signer certificate key usage does not allow digital signatures",
+      "ekuNotForSigning": "The signer certificate extended key usage is not for document signing (e.g. TLS, time-stamping, OCSP)"
     },
     "trust": {
       "chainComplete": "Certificate chain complete",
@@ -156,7 +183,9 @@
       "cannotBuildChain": "Cannot build complete certificate chain",
       "rootUntrusted": "Root certificate not in trust store",
       "rootNotInStore": "Root CA \"{name}\" is not in the trust list",
-      "storeEmpty": "Trust store is empty — no root CAs loaded; all signatures default to untrusted"
+      "storeEmpty": "Trust store is empty — no root CAs loaded; all signatures default to untrusted",
+      "selfSignedNotSupported": "The signer certificate is self-signed, which is not supported",
+      "trusted": "Chains to a trusted Taiwan root CA"
     },
     "timestamp": {
       "verified": "Timestamp verified",
@@ -171,7 +200,12 @@
       "currentlyValid": "Certificate currently valid",
       "expiredWithLtv": "Certificate expired but signature has LTV",
       "expired": "Certificate expired",
-      "expiredDate": "Expired: {date}"
+      "expiredDate": "Expired: {date}",
+      "validAtTimestamp": "Certificate was valid at the timestamp time",
+      "expiredNoTimestamp": "Certificate has expired and no trusted timestamp proves the signing time",
+      "notValidAtTimestamp": "Timestamp time is outside the certificate validity period",
+      "notYetValid": "Certificate is not yet valid",
+      "caNotValid": "Issuing CA certificate \"{name}\" is not valid at the validation time"
     },
     "revocation": {
       "notRevokedEmbedded": "Certificate not revoked (embedded data)",
@@ -199,7 +233,14 @@
       "inEmbeddedCrl": "Certificate found in embedded CRL (issuer: {issuer})",
       "notInEmbeddedCrl": "Certificate not in embedded CRL (issuer: {issuer})",
       "cannotDetermineFromEmbedded": "Cannot determine status from embedded revocation info",
-      "missingRevocationInfo": "{name} missing revocation info"
+      "missingRevocationInfo": "{name} missing revocation info",
+      "revokedAt": "Revoked at: {date}",
+      "revokedAfterSigning": "Certificate was revoked after signing ({date}); it was valid when signed",
+      "caRevoked": "Issuing CA certificate \"{name}\" has been revoked",
+      "evidence": "{kind}, signed by: {signer}",
+      "chainNotTrusted": "The chain does not reach a trusted root; revocation data cannot be validated",
+      "expiredNeedsLtv": "Certificate has expired; embedded revocation data (LTV) is required",
+      "caUnknown": "Revocation status of issuing CA certificate \"{name}\" could not be established"
     },
     "ltv": {
       "noLtvInfo": "No LTV info",
@@ -280,13 +321,22 @@
       "tsaCertMissing": "No TSA certificate in timestamp",
       "tsaUntrusted": "TSA \"{tsa}\" is not in the trust store",
       "tsaUntrustedDetails": "TSA \"{tsa}\"'s certificate is not in the TSA trust list",
-      "tsaTrustStoreEmpty": "TSA trust store is empty — no TSA roots loaded; cannot determine if the timestamp is trustworthy"
+      "tsaTrustStoreEmpty": "TSA trust store is empty — no TSA roots loaded; cannot determine if the timestamp is trustworthy",
+      "tsaNotTimestampingCert": "TSA \"{tsa}\" certificate lacks the timeStamping extended key usage",
+      "tsaCertNotValidAtTime": "Timestamp time is outside the TSA \"{tsa}\" certificate validity",
+      "unsupportedAlgorithm": "The timestamp uses an unsupported algorithm",
+      "tsaRevoked": "TSA \"{tsa}\" certificate was revoked before the timestamp time",
+      "tsaRevocationUnknown": "Revocation status of TSA \"{tsa}\" could not be established; the timestamp time is not used"
     },
     "misc": {
       "pdfDownloadFailed": "PDF download failed: {status}",
       "verificationProcessError": "An error occurred during verification",
       "partialAlgorithmUnsupported": "Some algorithms unsupported",
       "validityTo": "{from} to {to}"
+    },
+    "check": {
+      "skipped": "Skipped",
+      "skippedDetails": "Not evaluated: an earlier check already decided the result"
     }
   },
   "report": {
@@ -329,8 +379,20 @@
     "timestampInvalid": "Invalid",
     "statusTrusted": "Trusted",
     "statusFailed": "Failed",
-    "statusUnknown": "Unknown",
+    "statusUnknown": "Not fully verified",
     "reportGenTime": "Report generated: {time}",
     "reportGenBy": "Generated by PDFtrust"
+  },
+  "trust": {
+    "government": "Government",
+    "private": "Private"
+  },
+  "contextMenu": {
+    "verifyLink": "Verify the digital signatures of this PDF"
+  },
+  "popup": {
+    "currentTabResult": "Result for the current tab",
+    "fileAccessHint": "To verify local PDFs directly, turn on \"Allow access to file URLs\" in the extension details",
+    "openExtensionSettings": "Open extension settings"
   }
 }

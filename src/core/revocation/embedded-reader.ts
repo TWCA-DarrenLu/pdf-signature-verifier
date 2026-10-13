@@ -6,7 +6,7 @@ import type {
 } from '@/types'
 import { t } from '@/i18n'
 import { parseEmbeddedOcspResponse } from './ocsp-client'
-import { parseEmbeddedCrl, isSerialInCrl, isCrlValid } from './crl-client'
+import { parseEmbeddedCrl, isSerialInCrl } from './crl-client'
 
 /**
  * Check revocation status using embedded PDF revocation info

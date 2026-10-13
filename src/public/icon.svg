@@ -1,13 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="20" fill="#334155"/>
-  <!-- Document body -->
-  <path d="M34 18h38l22 22v70c0 5.5-4.5 10-10 10H34c-5.5 0-10-4.5-10-10V28c0-5.5 4.5-10 10-10z" fill="#fff" opacity="0.92"/>
-  <!-- Fold -->
-  <path d="M72 18v22h22" fill="#c4cad3"/>
-  <!-- Text lines -->
-  <path d="M40 54h36M40 66h44M40 78h20" stroke="#94a3b8" stroke-width="4" stroke-linecap="round"/>
-  <!-- Checkmark badge -->
-  <circle cx="90" cy="94" r="22" fill="#334155"/>
-  <circle cx="90" cy="94" r="19" fill="none" stroke="#fff" stroke-width="2.5" opacity="0.35"/>
-  <path d="M81 94l6 7 13-14" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs><linearGradient id="s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#1d4ed8"/></linearGradient></defs>
+  <path d="M64 6l50 16v38c0 33-21 53-50 64C35 113 14 93 14 60V22z" fill="url(#s)"/>
+  <path d="M46 30h26l16 16v46a6 6 0 0 1-6 6H46a6 6 0 0 1-6-6V36a6 6 0 0 1 6-6z" fill="#fff"/>
+  <path d="M72 30v12a4 4 0 0 0 4 4h12z" fill="#bfdbfe"/>
+  <path d="M47 64c4-7 7-7 7-1s-3 9 2 7 6-11 10-9 1 7 7 5" fill="none" stroke="#1e3a8a" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M48 82h30" stroke="#93c5fd" stroke-width="4" stroke-linecap="round"/>
 </svg>

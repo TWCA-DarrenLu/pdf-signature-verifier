@@ -1,4 +1,4 @@
-import type { PdfSignatureField, ByteRange, EmbeddedRevocationInfo } from '@/types'
+import type { PdfSignatureField, EmbeddedRevocationInfo } from '@/types'
 import { extractSignaturesFromRaw, extractDss } from './signature-extractor'
 
 export interface PdfDocument {

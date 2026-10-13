@@ -7,7 +7,7 @@
   },
   "status": {
     "trusted": "文件可信",
-    "unknown": "來源未知",
+    "unknown": "無法完整驗證",
     "failed": "驗證失敗"
   },
   "verification": {
@@ -17,7 +17,9 @@
     "noResult": "無驗證結果",
     "errorTitle": "驗證失敗",
     "retryButton": "重新選擇檔案",
-    "verifyOther": "驗證其他檔案"
+    "verifyOther": "驗證其他檔案",
+    "recheck": "重新檢查",
+    "recheckHint": "重新下載文件並線上查詢撤銷狀態"
   },
   "panel": {
     "title": "簽章驗證結果",
@@ -27,12 +29,16 @@
     "title": "簽章",
     "valid": "簽章有效",
     "invalid": "簽章無效",
-    "statusUnknown": "簽章未知",
+    "statusUnknown": "無法完整驗證",
     "signer": "簽署者：",
     "signedAt": "時間：",
     "reason": "原因：",
     "location": "位置：",
-    "unknown": "未知"
+    "unknown": "未知",
+    "reasons": "主要原因：",
+    "validationBasis": "驗證時間依據：",
+    "validationByTimestamp": "時戳時間 {time}",
+    "validationByCurrent": "目前時間（無可信時戳）"
   },
   "checks": {
     "title": "驗證詳情",
@@ -50,7 +56,8 @@
     "trusted": "已信任",
     "valid": "有效",
     "notRevoked": "未撤銷",
-    "complete": "完整"
+    "complete": "完整",
+    "skipped": "略過"
   },
   "certificate": {
     "chainTitle": "憑證鏈",
@@ -87,10 +94,14 @@
   "settings": {
     "title": "設定",
     "checkOnlineRevocation": "線上查詢撤銷狀態",
-    "autoVerify": "自動驗證頁面中的 PDF",
+    "autoVerify": "開啟 PDF 時自動驗證",
     "language": "語言",
     "langZhTW": "繁體中文",
-    "langEn": "English"
+    "langEn": "English",
+    "scopeAll": "所有網站",
+    "scopeListed": "僅指定網站",
+    "scopeOff": "關閉",
+    "sitesPlaceholder": "一行一個網域，例如 twca.com.tw（含子網域）"
   },
   "export": {
     "title": "匯出驗證報告 PDF",
@@ -104,7 +115,7 @@
     "verifying": "驗證中...",
     "trusted": "文件可信",
     "failed": "驗證失敗",
-    "unknown": "來源未知",
+    "unknown": "無法完整驗證",
     "error": "錯誤",
     "noResponse": "無回應",
     "unknownError": "未知錯誤",
@@ -119,7 +130,14 @@
     "pdfDetected": "偵測到 PDF 文件",
     "dismiss": "關閉",
     "fileReadFailed": "讀取檔案失敗",
-    "noFileSelected": "未選擇檔案"
+    "noFileSelected": "未選擇檔案",
+    "noSignatures": "未發現數位簽章",
+    "viewResult": "查看結果",
+    "cannotFetchPdf": "無法取得 PDF 內容（可能為一次性或已過期的連結），請下載後拖放到擴充功能驗證",
+    "localFileHint": "本機檔案：點「驗證簽章」選擇檔案，或把檔案拖曳到這列",
+    "dropHint": "已下載的 PDF 可直接拖曳到這列驗證",
+    "dropHere": "放開以驗證此 PDF",
+    "notPdf": "這不是 PDF 檔案"
   },
   "core": {
     "integrity": {
@@ -137,7 +155,11 @@
       "cadesHashDetails": "預期：{expected}，實際：{actual}",
       "signedWithSubsequentChanges": "簽章完整，但文件在簽署後仍有變更（多重簽章或附加內容）",
       "docMdpViolation": "違反 DocMDP 限制",
-      "docMdpP1Violation": "此認證簽章設定為「不可修改」（P=1），但偵測到後續變更"
+      "docMdpP1Violation": "此認證簽章設定為「不可修改」（P=1），但偵測到後續變更",
+      "signingCertMismatch": "簽署屬性綁定的憑證與簽署者憑證不符",
+      "unsupportedDigest": "不支援的摘要演算法",
+      "subsequentSignatures": "簽章完整；其後有其他簽章或長期驗證資料加入",
+      "unpermittedChanges": "簽署後的變更未經允許或無法確認：{reason}"
     },
     "chain": {
       "signerCertNotFound": "找不到簽署者憑證",
@@ -148,7 +170,12 @@
       "chainIncomplete": "憑證鏈不完整",
       "cannotBuildChain": "無法建立完整憑證鏈",
       "rootCa": "根 CA：{name}",
-      "unknownSigner": "未知"
+      "unknownSigner": "未知",
+      "selfSignedNotSupported": "不支援自簽憑證",
+      "chainVerifiedUntrustedRoot": "憑證鏈完整且簽章已驗證，但根憑證不受信任",
+      "signerIsCa": "簽署者憑證是 CA 憑證，不可用於簽署文件",
+      "keyUsageNotForSigning": "簽署者憑證的金鑰用途不含數位簽章／不可否認",
+      "ekuNotForSigning": "簽署者憑證的延伸用途不適用於文件簽署（如 TLS、時戳、OCSP）"
     },
     "trust": {
       "chainComplete": "憑證鏈完整",
@@ -156,7 +183,9 @@
       "cannotBuildChain": "無法建立完整憑證鏈",
       "rootUntrusted": "根憑證不在信任清單中",
       "rootNotInStore": "根 CA「{name}」未列入信任清單",
-      "storeEmpty": "信任清單為空 — 尚未載入任何 root CA，所有簽章預設視為不可信"
+      "storeEmpty": "信任清單為空 — 尚未載入任何 root CA，所有簽章預設視為不可信",
+      "selfSignedNotSupported": "簽署者憑證為自簽憑證，本工具不支援",
+      "trusted": "已鏈結至信任的台灣根憑證"
     },
     "timestamp": {
       "verified": "時戳已驗證",
@@ -171,7 +200,12 @@
       "currentlyValid": "憑證目前有效",
       "expiredWithLtv": "憑證已過期但簽章具備 LTV",
       "expired": "憑證已過期",
-      "expiredDate": "過期日期：{date}"
+      "expiredDate": "過期日期：{date}",
+      "validAtTimestamp": "憑證於時戳時間有效",
+      "expiredNoTimestamp": "憑證已過期，且沒有可信時戳證明簽署時間",
+      "notValidAtTimestamp": "時戳時間不在憑證有效期間內",
+      "notYetValid": "憑證尚未生效",
+      "caNotValid": "上層 CA 憑證「{name}」於驗證時間不在有效期間內"
     },
     "revocation": {
       "notRevokedEmbedded": "憑證未被撤銷（內嵌資料）",
@@ -199,7 +233,14 @@
       "inEmbeddedCrl": "憑證存在於內嵌 CRL 撤銷清單中（簽發者：{issuer}）",
       "notInEmbeddedCrl": "憑證未在內嵌 CRL 撤銷清單中（簽發者：{issuer}）",
       "cannotDetermineFromEmbedded": "無法從內嵌撤銷資訊判定狀態",
-      "missingRevocationInfo": "{name} 缺少撤銷資訊"
+      "missingRevocationInfo": "{name} 缺少撤銷資訊",
+      "revokedAt": "撤銷時間：{date}",
+      "revokedAfterSigning": "憑證於簽署後（{date}）才被撤銷，簽署當時有效",
+      "caRevoked": "上層 CA 憑證「{name}」已被撤銷",
+      "evidence": "{kind}，簽發者：{signer}",
+      "chainNotTrusted": "憑證鏈未鏈結至信任根憑證，無法驗證撤銷資訊",
+      "expiredNeedsLtv": "憑證已過期，需要文件內嵌的撤銷資料（LTV）才能確認",
+      "caUnknown": "無法確認上層 CA 憑證「{name}」的撤銷狀態"
     },
     "ltv": {
       "noLtvInfo": "無 LTV 資訊",
@@ -280,13 +321,22 @@
       "tsaCertMissing": "時戳中無 TSA 憑證",
       "tsaUntrusted": "TSA「{tsa}」不在信任清單中",
       "tsaUntrustedDetails": "TSA「{tsa}」的憑證未列入 TSA 信任清單",
-      "tsaTrustStoreEmpty": "TSA 信任清單為空 — 尚未載入任何 TSA root，無法判定時戳是否可信"
+      "tsaTrustStoreEmpty": "TSA 信任清單為空 — 尚未載入任何 TSA root，無法判定時戳是否可信",
+      "tsaNotTimestampingCert": "TSA「{tsa}」的憑證不具時戳用途（timeStamping）",
+      "tsaCertNotValidAtTime": "時戳時間不在 TSA「{tsa}」憑證有效期間內",
+      "unsupportedAlgorithm": "時戳使用不支援的演算法",
+      "tsaRevoked": "TSA「{tsa}」的憑證在時戳時間之前已被撤銷",
+      "tsaRevocationUnknown": "無法確認 TSA「{tsa}」憑證的撤銷狀態，時戳時間不予採用"
     },
     "misc": {
       "pdfDownloadFailed": "PDF 下載失敗: {status}",
       "verificationProcessError": "驗證過程發生錯誤",
       "partialAlgorithmUnsupported": "部分演算法不支援",
       "validityTo": "{from} 至 {to}"
+    },
+    "check": {
+      "skipped": "略過",
+      "skippedDetails": "前一項檢查已判定結果，此項未執行"
     }
   },
   "report": {
@@ -329,8 +379,20 @@
     "timestampInvalid": "無效",
     "statusTrusted": "可信任",
     "statusFailed": "驗證失敗",
-    "statusUnknown": "未知",
+    "statusUnknown": "無法完整驗證",
     "reportGenTime": "報告產生時間：{time}",
     "reportGenBy": "由 PDFtrust 產生"
+  },
+  "trust": {
+    "government": "公部門",
+    "private": "民間"
+  },
+  "contextMenu": {
+    "verifyLink": "驗證此 PDF 的數位簽章"
+  },
+  "popup": {
+    "currentTabResult": "目前分頁的驗證結果",
+    "fileAccessHint": "要直接驗證本機 PDF，請在擴充功能詳細資料開啟「允許存取檔案網址」",
+    "openExtensionSettings": "開啟擴充功能設定"
   }
 }

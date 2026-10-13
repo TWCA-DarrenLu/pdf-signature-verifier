@@ -207,3 +207,39 @@ export function ChevronDownIcon({ className = '' }: IconProps) {
     </svg>
   )
 }
+
+export function InfoIcon({ className = '' }: IconProps) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 7.5v3.5M8 5h.01" />
+    </svg>
+  )
+}
+
+export function MinusIcon({ className = '' }: IconProps) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M4 8h8" />
+    </svg>
+  )
+}

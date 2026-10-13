@@ -2,6 +2,7 @@ import * as asn1js from 'asn1js'
 import * as pkijs from 'pkijs'
 import type { ParsedCertificate, RevocationResult, RevocationReason } from '@/types'
 import { t } from '@/i18n'
+import { toArrayBuffer, asBufferSource } from '../bytes'
 
 const { OCSPRequest, OCSPResponse, BasicOCSPResponse, CertID } = pkijs
 
@@ -53,7 +54,7 @@ async function queryOcsp(
 ): Promise<RevocationResult> {
   // Build OCSP request
   const ocspRequest = await buildOcspRequest(certificate, issuerCertificate)
-  const requestData = ocspRequest.toSchema().toBER()
+  const requestData = ocspRequest.toSchema(true).toBER()
 
   // Send request via background script (to avoid CORS issues)
   const response = await sendOcspRequest(url, new Uint8Array(requestData))
@@ -74,6 +75,31 @@ async function queryOcsp(
 }
 
 /**
+ * Send an OCSP request for `certificate` to each responder URL in its AIA
+ * extension and return the first raw response. The caller MUST validate the
+ * response (signature, responder authorization, CertID) before using it —
+ * see revocation-validator.ts.
+ */
+export async function requestOcspResponse(
+  certificate: ParsedCertificate,
+  issuerCertificate: ParsedCertificate
+): Promise<Uint8Array | null> {
+  const urls = certificate.authorityInfoAccess?.ocsp || []
+  if (urls.length === 0) return null
+  const request = await buildOcspRequest(certificate, issuerCertificate)
+  const requestData = new Uint8Array(request.toSchema(true).toBER())
+  for (const url of urls) {
+    try {
+      const response = await sendOcspRequest(url, requestData)
+      if (response) return response
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+/**
  * Build OCSP request for a certificate
  */
 async function buildOcspRequest(
@@ -89,7 +115,7 @@ async function buildOcspRequest(
   // Hash issuer public key
   const issuerKeyHash = await crypto.subtle.digest(
     'SHA-1',
-    issuerCertificate.raw.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView
+    asBufferSource(issuerCertificate.raw.subjectPublicKeyInfo.subjectPublicKey.valueBlock.valueHexView)
   )
 
   // Create CertID with all fields at once; copy serialNumber to avoid
@@ -123,7 +149,7 @@ async function buildOcspRequest(
  * Parse OCSP response
  */
 function parseOcspResponse(data: Uint8Array): RevocationResult {
-  const asn1 = asn1js.fromBER(data.buffer)
+  const asn1 = asn1js.fromBER(toArrayBuffer(data))
   if (asn1.offset === -1) {
     throw new Error('Failed to parse OCSP response ASN.1')
   }
@@ -289,7 +315,7 @@ export function parseEmbeddedOcspResponse(data: Uint8Array): EmbeddedOcspResult 
 }
 
 function parseFullOcspResponseWithMeta(data: Uint8Array): EmbeddedOcspResult {
-  const asn1Result = asn1js.fromBER(data.buffer)
+  const asn1Result = asn1js.fromBER(toArrayBuffer(data))
   if (asn1Result.offset === -1) {
     throw new Error('Failed to parse OCSP response ASN.1')
   }
@@ -311,7 +337,7 @@ function parseFullOcspResponseWithMeta(data: Uint8Array): EmbeddedOcspResult {
 }
 
 function parseBasicOcspResponseWithMeta(data: Uint8Array): EmbeddedOcspResult {
-  const asn1 = asn1js.fromBER(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength))
+  const asn1 = asn1js.fromBER(toArrayBuffer(data))
   if (asn1.offset === -1) {
     throw new Error('Failed to parse BasicOCSPResponse ASN.1')
   }

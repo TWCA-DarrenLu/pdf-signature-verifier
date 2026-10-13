@@ -1,5 +1,6 @@
 import { t, setLocale, detectBrowserLocale } from '@/i18n'
 import type { Locale } from '@/i18n'
+import { shouldAutoVerify } from '@/settings/auto-verify'
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -24,32 +25,50 @@ export default defineContentScript({
         setLocale(detectBrowserLocale())
       }
     }
-    initLocale()
+    // Detect PDF files once the language is known: the injected bar and
+    // buttons are labelled when they are created.
+    void initLocale().then(() => {
+      detectPdfLinks()
+      detectEmbeddedPdfs()
 
-    // Detect PDF files in the page
-    detectPdfLinks()
-    detectEmbeddedPdfs()
-
-    // Watch for dynamically added content
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.addedNodes.length > 0) {
-          detectPdfLinks()
-          detectEmbeddedPdfs()
+      // Watch for dynamically added content
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.addedNodes.length > 0) {
+            detectPdfLinks()
+            detectEmbeddedPdfs()
+          }
         }
-      }
-    })
+      })
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+      })
     })
 
     // Listen for panel messages
     window.addEventListener('message', (event) => {
-      if (event.data?.type === 'pdf-panel-close') {
+      if (event.data?.type === 'pdf-panel-close' && panelIframe && event.source === panelIframe.contentWindow) {
         closePanel()
+      } else if (event.data?.type === 'pdf-panel-recheck' && panelIframe && event.source === panelIframe.contentWindow) {
+        void recheckFromPanel()
       }
+    })
+
+    // Right-click "verify this PDF": progress and result come from the background
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (message?.action === 'show-verifying') {
+        showToast(t('content.verifying'), false)
+      } else if (message?.action === 'show-result') {
+        hideToast()
+        void showPanel(message.result, message.source ?? null).catch(() => {})
+      } else if (message?.action === 'show-error') {
+        showToast(String(message.error ?? t('content.unknownError')), true)
+      } else {
+        return
+      }
+      sendResponse({ ok: true })
     })
 
     // Listen for language changes from popup/settings
@@ -70,20 +89,37 @@ export default defineContentScript({
 // ─── Panel Management ───────────────────────────────────────────
 
 let panelContainer: HTMLDivElement | null = null
+let panelIframe: HTMLIFrameElement | null = null
 let pendingResult: unknown = null
+type PanelSource = { url: string; fileName: string }
+/** Remote PDF behind the result shown in the panel (for "re-check"); null for local files. */
+let panelSource: PanelSource | null = null
+let panelFallbackTimer: ReturnType<typeof setTimeout> | undefined
+let panelReadyHandler: ((event: MessageEvent) => void) | null = null
+/** Result shown by the PDF viewer bar (automatic run, click or dropped file) and its source. */
+let viewerResult: unknown = null
+let viewerSource: PanelSource | null = null
+let viewerBusy = false
 
-function isChromeBrowser(): boolean {
-  // Chrome: has "Chrome/" but NOT "Edg/" (Edge) and NOT "brave" in navigator
-  return /\bChrome\//i.test(navigator.userAgent)
-    && !/\bEdg\//i.test(navigator.userAgent)
-    && !('brave' in navigator)
+type VerifyResponse = { result?: unknown; error?: string }
+
+function canEmbedPanel(): boolean {
+  // The panel iframe (extension page) loads in Chrome and Edge, incl. their
+  // PDF viewers — verified with Chrome 145 and Edge 155 (2026-10-13). Brave is
+  // untested and keeps the pop-up window; Firefox has no "Chrome/" in its UA.
+  // If the iframe does not load anyway, showPanel falls back to the window.
+  return /Chrome\//i.test(navigator.userAgent) && !('brave' in navigator)
 }
 
-async function showPanel(result: unknown) {
+function sourceFor(url: string): PanelSource | null {
+  return isFetchableByBackground(url) ? { url, fileName: getFileName(url) } : null
+}
+
+async function showPanel(result: unknown, source: PanelSource | null, auto = false) {
   // Only Chrome reliably supports extension iframes in content scripts.
   // Edge, Brave, and other Chromium forks block them.
-  if (!isChromeBrowser()) {
-    await openPanelAsPopup(result)
+  if (!canEmbedPanel()) {
+    await openPanelAsPopup(result, source)
     return
   }
 
@@ -91,6 +127,7 @@ async function showPanel(result: unknown) {
   closePanel()
 
   pendingResult = result
+  panelSource = source
 
   // Create overlay container
   panelContainer = document.createElement('div')
@@ -112,6 +149,7 @@ async function showPanel(result: unknown) {
 
   // Create iframe pointing to our panel page
   const iframe = document.createElement('iframe')
+  panelIframe = iframe
   iframe.src = chrome.runtime.getURL('/panel.html')
   iframe.style.cssText = `
     width: 100%;
@@ -121,22 +159,24 @@ async function showPanel(result: unknown) {
 
   // Listen for panel ready signal BEFORE iframe loads to avoid race condition
   const handlePanelReady = (event: MessageEvent) => {
-    if (event.data?.type === 'pdf-panel-ready') {
-      clearTimeout(fallbackTimer)
+    if (event.data?.type === 'pdf-panel-ready' && event.source === iframe.contentWindow) {
+      clearTimeout(panelFallbackTimer)
       iframe.contentWindow?.postMessage(
-        { type: 'pdf-verification-result', result: pendingResult },
+        { type: 'pdf-verification-result', result: pendingResult, canRecheck: panelSource !== null },
         '*'
       )
       window.removeEventListener('message', handlePanelReady)
+      panelReadyHandler = null
     }
   }
+  panelReadyHandler = handlePanelReady
   window.addEventListener('message', handlePanelReady)
 
-  // Fallback: if iframe fails to load, open as popup window
-  const fallbackTimer = setTimeout(() => {
-    window.removeEventListener('message', handlePanelReady)
+  // Fallback: if iframe fails to load, open as popup window — never unprompted
+  // (automatic runs leave the result on the button instead)
+  panelFallbackTimer = setTimeout(() => {
     closePanel()
-    openPanelAsPopup(result)
+    if (!auto) void openPanelAsPopup(result, source)
   }, 3000)
 
   panelContainer.appendChild(iframe)
@@ -161,9 +201,9 @@ async function showPanel(result: unknown) {
   document.addEventListener('keydown', handleEscape)
 }
 
-async function openPanelAsPopup(result: unknown) {
+async function openPanelAsPopup(result: unknown, source: PanelSource | null) {
   // Store result directly in storage (avoids large data serialization through messaging)
-  await chrome.storage.local.set({ 'pdf-panel-result': result })
+  await chrome.storage.local.set({ 'pdf-panel-result': result, 'pdf-panel-source': source })
   // Send lightweight message to background to open the panel window
   chrome.runtime.sendMessage({ action: 'open-panel-window' }, () => {
     void chrome.runtime.lastError // suppress console warning
@@ -171,6 +211,12 @@ async function openPanelAsPopup(result: unknown) {
 }
 
 function closePanel() {
+  clearTimeout(panelFallbackTimer)
+  panelFallbackTimer = undefined
+  if (panelReadyHandler) {
+    window.removeEventListener('message', panelReadyHandler)
+    panelReadyHandler = null
+  }
   if (panelContainer) {
     panelContainer.style.transform = 'translateX(100%)'
     const container = panelContainer
@@ -179,6 +225,8 @@ function closePanel() {
     }, 250)
     panelContainer = null
   }
+  panelIframe = null
+  panelSource = null
   pendingResult = null
 }
 
@@ -240,10 +288,20 @@ function detectEmbeddedPdfs() {
 
 // ─── Message Helpers ─────────────────────────────────────────────
 
-const VERIFY_TIMEOUT_MS = 30_000
+// Path building, OCSP/CRL and AIA fetches can take a while on slow networks.
+const VERIFY_TIMEOUT_MS = 90_000
 
 function isRemoteUrl(url: string): boolean {
   return url.startsWith('http://') || url.startsWith('https://')
+}
+
+/**
+ * The background can download this document: web URLs, and the file:// PDF
+ * this page shows — the content script only runs on file:// pages when the
+ * user allowed file access, which also lets the background read local files.
+ */
+function isFetchableByBackground(url: string): boolean {
+  return isRemoteUrl(url) || (url.startsWith('file:') && window.location.protocol === 'file:')
 }
 
 /**
@@ -289,23 +347,46 @@ function pickAndReadLocalPdf(): Promise<{ bytes: Uint8Array; fileName: string }>
  */
 async function verifyPdfFromUrl(
   url: string,
-  fileName: string
-): Promise<{ result?: unknown; error?: string }> {
-  if (isRemoteUrl(url)) {
-    return sendMessageWithTimeout<{ result?: unknown; error?: string }>({
+  fileName: string,
+  fresh = false
+): Promise<VerifyResponse> {
+  if (isFetchableByBackground(url)) {
+    return sendMessageWithTimeout<VerifyResponse>({
       action: 'verify-pdf-url',
       url,
       fileName,
+      fresh,
     })
   }
   // Local file — must use FileReader (XHR/fetch blocked by same-origin on file://)
   try {
     const picked = await pickAndReadLocalPdf()
-    const { verifyPdfSignatures } = await import('@/core/verifier')
-    const result = await verifyPdfSignatures(picked.bytes, picked.fileName)
-    return { result }
+    return await verifyBytesInBackground(picked.bytes, picked.fileName)
   } catch (error) {
     return { error: error instanceof Error ? error.message : t('content.unknownError') }
+  }
+}
+
+/**
+ * Local / dropped files are verified by the background too: only it may
+ * query OCSP / CRL servers (content-script requests are bound by the page's CORS).
+ */
+function verifyBytesInBackground(bytes: Uint8Array, fileName: string): Promise<VerifyResponse> {
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  }
+  return sendMessageWithTimeout<VerifyResponse>({ action: 'verify-pdf', base64: btoa(binary), fileName })
+}
+
+/** Tell the background what the bar shows, for the toolbar badge and the popup. */
+function reportTabState(state: string, result?: unknown, source?: PanelSource | null): void {
+  try {
+    chrome.runtime.sendMessage({ action: 'tab-state', state, result, source: source ?? null }, () => {
+      void chrome.runtime.lastError
+    })
+  } catch {
+    // extension reloaded — the badge is optional
   }
 }
 
@@ -390,13 +471,15 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
 
       if (!result || result.error) {
         button.innerHTML = `${svgX()} ${t('content.failed')}`
+        button.dataset.pdfVerifierState = 'error'
         button.title = result?.error || t('content.noResponse')
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
-        try { await showPanel(result.result) } catch { /* panel display is optional */ }
+        try { await showPanel(result.result, sourceFor(link.href)) } catch { /* panel display is optional */ }
       }
     } catch (error) {
       button.innerHTML = `${svgX()} ${t('content.error')}`
+      button.dataset.pdfVerifierState = 'error'
       button.title = error instanceof Error ? error.message : t('content.unknownError')
     }
 
@@ -450,10 +533,11 @@ function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
         button.innerHTML = `${svgX()} ${t('content.failed')}`
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
-        try { await showPanel(result.result) } catch { /* panel display is optional */ }
+        try { await showPanel(result.result, sourceFor(src)) } catch { /* panel display is optional */ }
       }
     } catch {
       button.innerHTML = `${svgX()} ${t('content.error')}`
+      button.dataset.pdfVerifierState = 'error'
     }
 
     button.disabled = false
@@ -520,6 +604,7 @@ function injectPdfViewerButton() {
     font-size: 13px;
     color: #1e40af;
   `
+  info.id = 'pdf-verifier-bar-info'
   info.innerHTML = `${svgDoc()} ${t('content.pdfDetected')}`
 
   // Right section: verify button + close button
@@ -563,35 +648,24 @@ function injectPdfViewerButton() {
   button.addEventListener('click', async () => {
     const pdfUrl = window.location.href
 
-    if (!isRemoteUrl(pdfUrl)) {
-      // Local file — open the extension popup (same as clicking the icon)
-      chrome.runtime.sendMessage({ action: 'open-popup' }, () => {
-        void chrome.runtime.lastError
-      })
+    // Already verified (e.g. automatically): show that result instead of verifying again
+    if (viewerResult && hasSignatures(viewerResult)) {
+      try { await showPanel(viewerResult, viewerSource) } catch { /* panel display is optional */ }
       return
     }
 
-    button.dataset.pdfVerifierState = 'busy'
-    button.innerHTML = `${svgLoading()} ${t('content.verifying')}`
-    button.disabled = true
-
-    try {
-      const fileName = getFileName(pdfUrl)
-      const result = await verifyPdfFromUrl(pdfUrl, fileName)
-
-      if (!result || result.error) {
-        button.innerHTML = `${svgX()} ${t('content.failed')}`
-        button.title = result?.error || t('content.noResponse')
-      } else {
-        updateButtonWithResult(button, result.result as VerifyResult)
-        try { await showPanel(result.result) } catch { /* panel display is optional */ }
+    if (!isRemoteUrl(pdfUrl) && button.dataset.pdfVerifierState === 'error') {
+      // Local file the background could not read: the user picks it
+      let picked: { bytes: Uint8Array; fileName: string }
+      try {
+        picked = await pickAndReadLocalPdf()
+      } catch {
+        return // cancelled
       }
-    } catch (error) {
-      button.innerHTML = `${svgX()} ${t('content.error')}`
-      button.title = error instanceof Error ? error.message : t('content.unknownError')
+      await runViewerVerification(button, false, () => verifyBytesInBackground(picked.bytes, picked.fileName), null)
+      return
     }
-
-    button.disabled = false
+    await runViewerVerification(button, false)
   })
 
   // Close/dismiss button
@@ -617,6 +691,202 @@ function injectPdfViewerButton() {
   bar.appendChild(info)
   bar.appendChild(actions)
   document.body.appendChild(bar)
+
+  // Drop zone: a downloaded / local PDF dropped on the bar is verified right here
+  let dragDepth = 0
+  let infoBeforeDrag = ''
+  const carriesFiles = (event: DragEvent) => Array.from(event.dataTransfer?.types ?? []).includes('Files')
+  const setDropActive = (active: boolean) => {
+    if (active && !infoBeforeDrag) {
+      infoBeforeDrag = info.innerHTML
+      info.innerHTML = `${svgDoc()} ${t('content.dropHere')}`
+    } else if (!active && infoBeforeDrag) {
+      info.innerHTML = infoBeforeDrag
+      infoBeforeDrag = ''
+    }
+    bar.style.background = active ? '#dbeafe' : '#eff6ff'
+    bar.style.outline = active ? '2px dashed #3b82f6' : ''
+  }
+  bar.addEventListener('dragenter', (event) => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    dragDepth++
+    setDropActive(true)
+  })
+  bar.addEventListener('dragover', (event) => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  })
+  bar.addEventListener('dragleave', () => {
+    dragDepth = Math.max(0, dragDepth - 1)
+    if (dragDepth === 0) setDropActive(false)
+  })
+  bar.addEventListener('drop', (event) => {
+    event.preventDefault()
+    dragDepth = 0
+    setDropActive(false)
+    const file = event.dataTransfer?.files?.[0]
+    if (!file) return
+    void runViewerVerification(button, false, async () => {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      return verifyBytesInBackground(bytes, file.name)
+    }, null)
+  })
+
+  if (isFetchableByBackground(window.location.href)) {
+    void isAutoVerifyEnabled().then((enabled) => {
+      if (enabled) void runViewerVerification(button, true)
+    })
+  } else {
+    info.innerHTML = `${svgDoc()} ${t('content.pdfDetected')} — ${t('content.localFileHint')}`
+  }
+}
+
+async function isAutoVerifyEnabled(): Promise<boolean> {
+  try {
+    const stored = await chrome.storage.local.get('pdf-verifier-settings')
+    return shouldAutoVerify(stored['pdf-verifier-settings'], window.location.hostname)
+  } catch {
+    return true
+  }
+}
+
+function hasSignatures(result: unknown): boolean {
+  const signatures = (result as VerifyResult | null)?.signatures
+  return Array.isArray(signatures) && signatures.length > 0
+}
+
+/**
+ * Verify for the viewer bar: by default the PDF shown in the viewer, or a
+ * picked / dropped file (`task`, no re-fetchable source). Automatic runs open
+ * the side panel only where it can be embedded (Chrome); other browsers would
+ * need a pop-up window, which the user opens by clicking the result button.
+ */
+async function runViewerVerification(
+  button: HTMLButtonElement,
+  auto: boolean,
+  task?: () => Promise<VerifyResponse>,
+  taskSource: PanelSource | null = null
+): Promise<void> {
+  if (viewerBusy) return
+  viewerBusy = true
+  button.dataset.pdfVerifierState = 'busy'
+  button.innerHTML = `${svgLoading()} ${t('content.verifying')}`
+  button.style.background = '#3b82f6'
+  button.disabled = true
+  reportTabState('busy')
+
+  try {
+    const pdfUrl = window.location.href
+    const source = task ? taskSource : sourceFor(pdfUrl)
+    const response = task ? await task() : await verifyPdfFromUrl(pdfUrl, getFileName(pdfUrl))
+
+    if (!response || response.error) {
+      button.innerHTML = `${svgX()} ${t('content.cannotGetPdf')}`
+      button.dataset.pdfVerifierState = 'error'
+      if (task) {
+        button.title = response?.error ?? t('content.noResponse')
+      } else {
+        // The document is fetched again; single-use or expired links fail here.
+        button.title = response?.error ? `${t('content.cannotFetchPdf')} (${response.error})` : t('content.cannotFetchPdf')
+        setBarHint(isRemoteUrl(window.location.href) ? t('content.dropHint') : t('content.localFileHint'))
+      }
+      reportTabState('error')
+      return
+    }
+
+    viewerResult = response.result
+    viewerSource = source
+    if (!hasSignatures(response.result)) {
+      button.dataset.pdfVerifierState = 'none'
+      button.innerHTML = `${svgDoc()} ${t('content.noSignatures')}`
+      button.style.background = '#64748b'
+      button.title = t('content.noSignatures')
+      reportTabState('none')
+      return
+    }
+
+    updateButtonWithResult(button, response.result as VerifyResult)
+    reportTabState(button.dataset.pdfVerifierState ?? 'unknown', response.result, source)
+    if (!auto || canEmbedPanel()) {
+      try { await showPanel(response.result, source, auto) } catch { /* panel display is optional */ }
+    } else {
+      button.title = `${button.title} | ${t('content.viewResult')}`
+    }
+  } catch (error) {
+    button.innerHTML = `${svgX()} ${t('content.error')}`
+    button.dataset.pdfVerifierState = 'error'
+    button.title = error instanceof Error ? error.message : t('content.unknownError')
+    reportTabState('error')
+  } finally {
+    viewerBusy = false
+    button.disabled = false
+  }
+}
+
+function setBarHint(text: string): void {
+  const info = document.getElementById('pdf-verifier-bar-info')
+  if (info) info.innerHTML = `${svgDoc()} ${t('content.pdfDetected')} — ${text}`
+}
+
+// ─── Toast (context-menu progress / errors) ─────────────────────
+
+let toastTimer: ReturnType<typeof setTimeout> | undefined
+
+function showToast(text: string, isError: boolean): void {
+  let toast = document.getElementById('pdf-verifier-toast')
+  if (!toast) {
+    toast = document.createElement('div')
+    toast.id = 'pdf-verifier-toast'
+    toast.style.cssText = `
+      position: fixed; top: 16px; right: 16px; z-index: 2147483647;
+      max-width: 360px; padding: 10px 14px; border-radius: 8px;
+      font: 13px/1.4 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: white; box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    `
+    document.body.appendChild(toast)
+  }
+  toast.textContent = text
+  toast.style.background = isError ? '#dc2626' : '#1e40af'
+  clearTimeout(toastTimer)
+  if (isError) toastTimer = setTimeout(hideToast, 6000)
+}
+
+function hideToast(): void {
+  clearTimeout(toastTimer)
+  document.getElementById('pdf-verifier-toast')?.remove()
+}
+
+/** "Re-check" from the side panel: verify the same source again and refresh the panel. */
+async function recheckFromPanel(): Promise<void> {
+  const iframe = panelIframe
+  const source = panelSource
+  if (!iframe || !source) {
+    iframe?.contentWindow?.postMessage({ type: 'pdf-verification-error', error: t('content.noResponse') }, '*')
+    return
+  }
+  let response: { result?: unknown; error?: string }
+  try {
+    response = await verifyPdfFromUrl(source.url, source.fileName, true)
+  } catch (error) {
+    response = { error: error instanceof Error ? error.message : t('content.unknownError') }
+  }
+  if (response.result) {
+    pendingResult = response.result
+    if (source.url === window.location.href) {
+      viewerResult = response.result
+      viewerSource = source
+      const viewerButton = document.getElementById('pdf-verifier-floating-button') as HTMLButtonElement | null
+      if (viewerButton && hasSignatures(response.result)) {
+        updateButtonWithResult(viewerButton, response.result as VerifyResult)
+        reportTabState(viewerButton.dataset.pdfVerifierState ?? 'unknown', response.result, source)
+      }
+    }
+    iframe.contentWindow?.postMessage({ type: 'pdf-verification-result', result: response.result, canRecheck: true }, '*')
+  } else {
+    iframe.contentWindow?.postMessage({ type: 'pdf-verification-error', error: response.error ?? t('content.noResponse') }, '*')
+  }
 }
 
 // ─── Result Display Helpers ─────────────────────────────────────
@@ -635,6 +905,7 @@ function updateButtonWithResult(
   result: VerifyResult
 ) {
   const status = result?.status
+  button.dataset.pdfVerifierState = status === 'trusted' || status === 'failed' ? status : 'unknown'
   if (status === 'trusted') {
     button.innerHTML = `${svgCheck()} ${t('content.trusted')}`
     button.style.background = '#22c55e'

@@ -1,243 +1,199 @@
 import type { ParsedCertificate, CertificateChain } from '@/types'
-import { parseCertificateFromBytes } from './cert-utils'
-import { isChainTrusted, findTrustAnchor } from '@/trust-store/trust-manager'
+import { parseCertificateFromBytes, parseCertificatesFromBundle } from './cert-utils'
+import {
+  getTrustAnchors,
+  getTsaTrustAnchors,
+  getKnownIntermediates,
+} from '@/trust-store/trust-manager'
+import { verifyCertSignature } from '../crypto/pki-verify'
+
+export type AnchorStore = 'signing' | 'tsa'
+
+export interface ChainBuildOptions {
+  /** Fetch missing issuers from the AIA caIssuers URL. */
+  fetchMissing?: boolean
+  /** Extra DER certificates (e.g. the PDF's DSS /Certs). */
+  additionalCertBytes?: Uint8Array[]
+  /** Which trust store terminates the path. Default: signing. */
+  anchorStore?: AnchorStore
+}
+
+/** Max certificates in a path, leaf and anchor included. */
+const MAX_PATH_LENGTH = 8
 
 /**
- * Build a certificate chain from a set of certificates.
- * Uses embedded PKCS#7 certificates plus the configured trust store.
+ * Build a certification path from `endEntityCert` to a trust anchor.
  *
- * isComplete = chain terminates at a self-signed cert (structural completeness).
- * isTrusted  = the chain's root is present in the trust store.
+ * Candidate issuers come from the signature's embedded certificates, the
+ * PDF's DSS, the bundled Taiwan intermediates, the anchors themselves and —
+ * optionally — AIA downloads. None of these sources is trusted: a candidate
+ * only joins the path when
+ *   - its subject equals the child's issuer (and AKI/SKI agree when present),
+ *   - it is a CA (basicConstraints cA, keyCertSign, pathLenConstraint), and
+ *   - the child's signature verifies with its public key.
+ * The path is trusted only when it ends at an anchor matched by SHA-256
+ * fingerprint. Same-name candidates (e.g. GRCA G1/G2, TWCA Root CA SHA-1 /
+ * SHA-256) are tried in turn (backtracking).
  *
- * NOTE: isComplete alone is NEVER enough to call a chain trusted —
- * any attacker can self-sign a CA and append it. The trust check must
- * cross-reference the curated trust anchor list (taiwan-roots.ts).
+ * A self-signed end-entity certificate is never trusted.
  */
 export async function buildCertificateChain(
   endEntityCert: ParsedCertificate,
   intermediateCerts: ParsedCertificate[],
   options: ChainBuildOptions = {}
 ): Promise<CertificateChain> {
-  const { fetchMissing = false, additionalCertBytes = [] } = options
+  const { fetchMissing = false, additionalCertBytes = [], anchorStore = 'signing' } = options
 
-  const chain: ParsedCertificate[] = [endEntityCert]
-  const available = [...intermediateCerts]
+  if (isSelfIssued(endEntityCert) || (await verifyCertSignature(endEntityCert, endEntityCert))) {
+    return {
+      certificates: [endEntityCert],
+      root: endEntityCert,
+      isComplete: true,
+      isTrusted: false,
+      selfSignedLeaf: true,
+    }
+  }
 
-  // Parse DSS /Certs and add to available pool (best-effort)
-  for (const certBytes of additionalCertBytes) {
+  const anchors = anchorStore === 'tsa' ? getTsaTrustAnchors() : getTrustAnchors()
+  const anchorFps = new Set(anchors.map((a) => a.fingerprint.toLowerCase()))
+  const isAnchor = (c: ParsedCertificate) => anchorFps.has(c.fingerprint.toLowerCase())
+
+  const pool = new Map<string, ParsedCertificate>()
+  const addToPool = (c: ParsedCertificate) => {
+    if (!pool.has(c.fingerprint)) pool.set(c.fingerprint, c)
+  }
+  intermediateCerts.forEach(addToPool)
+  for (const bytes of additionalCertBytes) {
     try {
-      const parsed = await parseCertificateFromBytes(certBytes)
-      if (parsed && !available.some((c) => c.fingerprint === parsed.fingerprint)) {
-        available.push(parsed)
-      }
+      addToPool(await parseCertificateFromBytes(bytes))
     } catch {
-      continue
+      // ignore unparsable DSS entries
     }
   }
+  getKnownIntermediates().forEach(addToPool)
+  anchors.forEach(addToPool)
 
-  let current = endEntityCert
-  let isComplete = false
+  const triedUrls = new Set<string>()
+  let longest: ParsedCertificate[] = [endEntityCert]
+  let untrustedComplete: ParsedCertificate[] | null = null
 
-  // Build chain upward
-  while (!isComplete) {
-    // Check if self-signed (root)
-    if (current.isSelfSigned) {
-      isComplete = true
-      break
+  const extend = async (path: ParsedCertificate[]): Promise<ParsedCertificate[] | null> => {
+    const current = path[path.length - 1]
+    if (path.length > longest.length) longest = path
+
+    if (isAnchor(current)) return path
+    if (isSelfIssued(current)) {
+      if (!untrustedComplete) untrustedComplete = path
+      return null
     }
+    if (path.length >= MAX_PATH_LENGTH) return null
 
-    // Find issuer in available certificates
-    let issuer = findIssuer(current, available)
-
-    // If not found and fetchMissing is enabled, try to fetch
-    if (!issuer && fetchMissing && current.authorityInfoAccess?.caIssuers.length) {
-      issuer = await fetchIssuerCertificate(current.authorityInfoAccess.caIssuers)
-    }
-
-    if (issuer) {
-      chain.push(issuer)
-      current = issuer
-
-      // Remove from available to prevent cycles
-      const index = available.findIndex((c) => c.fingerprint === issuer!.fingerprint)
-      if (index !== -1) {
-        available.splice(index, 1)
+    let candidates = issuerCandidates(current, [...pool.values()], path)
+    if (candidates.length === 0 && fetchMissing) {
+      for (const url of current.authorityInfoAccess?.caIssuers ?? []) {
+        if (triedUrls.has(url)) continue
+        triedUrls.add(url)
+        ;(await fetchIssuerCertificates(url)).forEach(addToPool)
       }
-    } else {
-      // Chain is incomplete
-      break
+      candidates = issuerCandidates(current, [...pool.values()], path)
     }
+    candidates.sort((a, b) => Number(isAnchor(b)) - Number(isAnchor(a)))
 
-    // Prevent infinite loops
-    if (chain.length > 10) {
-      break
+    // Number of CA certificates already below the candidate (leaf excluded).
+    const casBelow = path.length - 1
+    for (const candidate of candidates) {
+      if (!canIssue(candidate, casBelow)) continue
+      if (!(await verifyCertSignature(current, candidate))) continue
+      const found = await extend([...path, candidate])
+      if (found) return found
+    }
+    return null
+  }
+
+  const trustedPath = await extend([endEntityCert])
+  if (trustedPath) {
+    return {
+      certificates: trustedPath,
+      root: trustedPath[trustedPath.length - 1],
+      isComplete: true,
+      isTrusted: true,
     }
   }
 
-  // Find structural root: the topmost cert if it is self-signed.
-  let root = chain.length > 0 && chain[chain.length - 1].isSelfSigned
-    ? chain[chain.length - 1]
-    : null
-
-  // Trust check: ANY cert in the chain matching the trust store is enough.
-  // Two cases:
-  //  - Self-signed root cert is in the trust store (typical CA scenario).
-  //  - An intermediate is itself in the trust store (cross-signed scenario).
-  //    In that case the "root" for trust purposes is the anchor, and the
-  //    chain is considered "complete enough" — we have a verified path to
-  //    a trusted point.
-  let isTrusted = false
-  if (chain.length > 0) {
-    isTrusted = isChainTrusted(chain)
-    if (isTrusted) {
-      // Find which cert in the chain matches the trust store and treat
-      // that as the effective root.
-      for (const cert of chain) {
-        const anchor = findTrustAnchor(cert)
-        if (anchor) {
-          root = anchor
-          // A path to a trust anchor counts as a complete chain even if
-          // the anchor is an intermediate.
-          isComplete = true
-          break
-        }
-      }
-    }
-  }
-
+  const fallback: ParsedCertificate[] = untrustedComplete ?? longest
+  const top = fallback[fallback.length - 1]
   return {
-    certificates: chain,
-    root,
-    isComplete,
-    isTrusted,
+    certificates: fallback,
+    root: isSelfIssued(top) ? top : null,
+    isComplete: isSelfIssued(top),
+    isTrusted: false,
   }
 }
 
-export interface ChainBuildOptions {
-  fetchMissing?: boolean
-  additionalCertBytes?: Uint8Array[]
+function isSelfIssued(cert: ParsedCertificate): boolean {
+  return cert.subject === cert.issuer
 }
 
-/**
- * Find issuer certificate for a given certificate
- */
-function findIssuer(
+function issuerCandidates(
   cert: ParsedCertificate,
-  candidates: ParsedCertificate[]
-): ParsedCertificate | null {
-  for (const candidate of candidates) {
-    // Match by subject/issuer name
-    if (candidate.subject !== cert.issuer) {
-      continue
-    }
-
-    // Match by authority key identifier if available
+  pool: ParsedCertificate[],
+  path: ParsedCertificate[]
+): ParsedCertificate[] {
+  return pool.filter((candidate) => {
+    if (candidate.subject !== cert.issuer) return false
+    if (path.some((p) => p.fingerprint === candidate.fingerprint)) return false
     if (cert.authorityKeyIdentifier && candidate.subjectKeyIdentifier) {
-      if (cert.authorityKeyIdentifier !== candidate.subjectKeyIdentifier) {
-        continue
-      }
+      return cert.authorityKeyIdentifier === candidate.subjectKeyIdentifier
     }
-
-    // Verify signature if possible
-    // For now, we trust the name match
-    return candidate
-  }
-
-  return null
+    return true
+  })
 }
 
 /**
- * Fetch issuer certificate from AIA extension
+ * RFC 5280 §6.1.4 essentials for an issuing certificate.
  */
-async function fetchIssuerCertificate(
-  urls: string[]
-): Promise<ParsedCertificate | null> {
-  const { fetchCertificateBytes } = await import('../network')
-
-  for (const url of urls) {
-    try {
-      const certData = await fetchCertificateBytes(url)
-      if (certData) {
-        return await parseCertificateFromBytes(certData)
-      }
-    } catch {
-      // Try next URL
-      continue
-    }
+function canIssue(candidate: ParsedCertificate, casBelow: number): boolean {
+  if (!candidate.isCA) return false
+  if (candidate.keyUsagePresent && !candidate.keyUsage.keyCertSign) return false
+  if (
+    typeof candidate.pathLenConstraint === 'number' &&
+    !isSelfIssued(candidate) &&
+    casBelow > candidate.pathLenConstraint
+  ) {
+    return false
   }
+  return true
+}
 
-  return null
+async function fetchIssuerCertificates(url: string): Promise<ParsedCertificate[]> {
+  try {
+    const { fetchCertificateBytes } = await import('../network')
+    const data = await fetchCertificateBytes(url)
+    return data ? await parseCertificatesFromBundle(data) : []
+  } catch {
+    return []
+  }
 }
 
 /**
- * Verify that one certificate issued another
+ * Verify that one certificate issued another (name chaining + signature).
  */
 export async function verifyIssuedBy(
   subject: ParsedCertificate,
   issuer: ParsedCertificate
 ): Promise<boolean> {
-  // Check name chaining
-  if (subject.issuer !== issuer.subject) {
-    return false
-  }
-
-  // Check key identifier if available
+  if (subject.issuer !== issuer.subject) return false
   if (subject.authorityKeyIdentifier && issuer.subjectKeyIdentifier) {
-    if (subject.authorityKeyIdentifier !== issuer.subjectKeyIdentifier) {
-      return false
-    }
+    if (subject.authorityKeyIdentifier !== issuer.subjectKeyIdentifier) return false
   }
-
-  // Verify signature
-  try {
-    const subjectDer = subject.raw.toSchema().toBER()
-    const tbsCertificate = subject.raw.tbsView
-    const signature = subject.raw.signatureValue.valueBlock.valueHexView
-
-    if (!issuer.publicKey) {
-      return false
-    }
-
-    // Get algorithm for verification
-    const algorithmId = subject.raw.signatureAlgorithm.algorithmId
-    const algorithm = getVerifyAlgorithm(algorithmId)
-
-    if (!algorithm) {
-      return false
-    }
-
-    return await crypto.subtle.verify(
-      algorithm,
-      issuer.publicKey,
-      signature,
-      tbsCertificate
-    )
-  } catch {
-    return false
-  }
-}
-
-function getVerifyAlgorithm(oid: string): AlgorithmIdentifier | null {
-  const algorithms: Record<string, AlgorithmIdentifier> = {
-    '1.2.840.113549.1.1.5': { name: 'RSASSA-PKCS1-v1_5' }, // SHA1withRSA
-    '1.2.840.113549.1.1.11': { name: 'RSASSA-PKCS1-v1_5' }, // SHA256withRSA
-    '1.2.840.113549.1.1.12': { name: 'RSASSA-PKCS1-v1_5' }, // SHA384withRSA
-    '1.2.840.113549.1.1.13': { name: 'RSASSA-PKCS1-v1_5' }, // SHA512withRSA
-    '1.2.840.10045.4.3.2': { name: 'ECDSA', hash: 'SHA-256' } as EcdsaParams, // SHA256withECDSA
-    '1.2.840.10045.4.3.3': { name: 'ECDSA', hash: 'SHA-384' } as EcdsaParams, // SHA384withECDSA
-    '1.2.840.10045.4.3.4': { name: 'ECDSA', hash: 'SHA-512' } as EcdsaParams, // SHA512withECDSA
-  }
-
-  return algorithms[oid] || null
+  return verifyCertSignature(subject, issuer)
 }
 
 /**
  * Get certificate chain as array of DER bytes
  */
 export function chainToDer(chain: CertificateChain): Uint8Array[] {
-  return chain.certificates.map((cert) =>
-    new Uint8Array(cert.raw.toSchema().toBER())
-  )
+  return chain.certificates.map((cert) => new Uint8Array(cert.raw.toSchema().toBER()))
 }
 
 /**

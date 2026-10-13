@@ -1,103 +1,181 @@
-import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'fs'
+// @vitest-environment node
+import { describe, it, expect, beforeAll, vi } from 'vitest'
+import { existsSync, readFileSync } from 'fs'
 import { resolve } from 'path'
 import { verifyPdfSignatures } from '@/core/verifier'
-
-const SAMPLE_DIR = resolve(__dirname, '../../PDF_Sample')
+import { setLocale } from '@/i18n'
+import { getCheckState, type VerificationResult } from '@/types'
 
 /**
- * Audit P0–P3 reshaped what "trusted" means. With the curated Taiwan trust
- * store populated, signatures issued under TWCA/GRCA chains validate cleanly,
- * but two factors can still keep the overall status at `unknown`:
+ * End-to-end checks against real signed PDFs in PDF_Sample/ (gitignored —
+ * local only; the suite is skipped when the folder is absent).
  *
- *   1. A second signature in the doc chains to a foreign CA (DigiCert /
- *      DocuSign) that is intentionally NOT in the Taiwan-only trust store.
- *   2. The embedded RFC 3161 timestamp's TSA signature fails Web Crypto
- *      verification (real-world TWCA TSP tokens hit this — a known
- *      limitation of the in-browser ASN.1 re-encoding path; the old code
- *      silently passed these as "valid", which the audit explicitly
- *      forbids).
+ * Expected local samples (generic names):
+ *   hsm-signed-a.pdf / hsm-signed-b.pdf — TWCA HSM signer + MyTWES signature, embedded CRLs, TWCA TSA
+ *   ixml-plus-signed.pdf                — signer under TWCA Information XML Plus Root CA + MyTWES signature
+ *   expired-hsm-and-foreign-ca.pdf      — expired one-day HSM certificate, OCSP embedded in the signed
+ *                                         adbe-revocationInfoArchival attribute + DocuSign co-signature
+ *                                         under a foreign root (its DSS only covers the DocuSign chain)
+ *   foreign-tsa.pdf                     — Taiwan signer, timestamp from a non-Taiwan TSA
+ *   self-signed.pdf                     — self-signed signer
+ *   attached-signed-pdfs.pdf            — self-signed outer signature, signed PDFs as attachments
+ *   unsigned.pdf                        — no signature
+ *   encrypted-signed.pdf                — encrypted, signed document
  *
- * The tests below assert the parts that are deterministic: integrity,
- * chain, trust for Taiwan-rooted signatures, validity, and embedded
- * revocation should all PASS.
+ * Default run is OFFLINE (no OCSP / CRL / AIA fetches): the outcome depends
+ * only on the PDF content and the bundled Taiwan trust store. Set
+ * PDF_SAMPLE_ONLINE=1 to also run the online expectations.
+ *
+ * Policy under test: Taiwan PKI roots only, self-signed signers rejected,
+ * revocation must be proven (signer path and TSA path), timestamps must chain
+ * to a Taiwan TSA root.
  */
+vi.setConfig({ testTimeout: 120_000 })
 
-function logVerification(label: string, result: Awaited<ReturnType<typeof verifyPdfSignatures>>) {
-  console.log(`=== ${label} ===`)
-  console.log('Overall status:', result.status)
-  for (const sig of result.signatures) {
-    console.log(`\nSignature #${sig.index}: ${sig.signerName} — ${sig.status}`)
-    console.log('  Integrity:', sig.checks.integrity.passed ? 'PASS' : 'FAIL', '-', sig.checks.integrity.message)
-    console.log('  Chain:', sig.checks.certificateChain.passed ? 'PASS' : 'FAIL', '-', sig.checks.certificateChain.message)
-    console.log('  Trust:', sig.checks.trustRoot.passed ? 'PASS' : 'FAIL', '-', sig.checks.trustRoot.message, sig.checks.trustRoot.details)
-    console.log('  Validity:', sig.checks.validity.passed ? 'PASS' : 'FAIL', '-', sig.checks.validity.message)
-    if (sig.checks.timestamp) {
-      console.log('  Timestamp:', sig.checks.timestamp.passed ? 'PASS' : 'FAIL', '-', sig.checks.timestamp.message)
+const SAMPLE_DIR = resolve(__dirname, '../../PDF_Sample')
+const hasSamples = existsSync(SAMPLE_DIR)
+const HSM_SAMPLES = ['hsm-signed-a.pdf', 'hsm-signed-b.pdf']
+
+async function verify(file: string, online = false): Promise<VerificationResult> {
+  const data = readFileSync(resolve(SAMPLE_DIR, file))
+  return verifyPdfSignatures(data, file, { checkOnlineRevocation: online })
+}
+
+const SIGNED_SAMPLES = ['hsm-signed-a.pdf', 'hsm-signed-b.pdf', 'ixml-plus-signed.pdf', 'expired-hsm-and-foreign-ca.pdf',
+  'foreign-tsa.pdf', 'self-signed.pdf', 'attached-signed-pdfs.pdf', 'encrypted-signed.pdf']
+
+/** failed ⇒ a red check; unknown ⇒ amber but no red; trusted ⇒ neither. */
+async function expectStatesMatchStatus(online: boolean): Promise<void> {
+  for (const file of SIGNED_SAMPLES) {
+    const result = await verify(file, online)
+    for (const sig of result.signatures) {
+      const states = Object.values(sig.checks).filter(Boolean).map((c) => getCheckState(c!))
+      const where = `${file} / ${sig.signerName}: ${sig.status} ${states.join(',')}`
+      if (sig.status === 'failed') expect(states, where).toContain('error')
+      if (sig.status === 'unknown') {
+        expect(states, where).not.toContain('error')
+        expect(states, where).toContain('warning')
+      }
+      if (sig.status === 'trusted') {
+        expect(states, where).not.toContain('error')
+        expect(states, where).not.toContain('warning')
+      }
     }
-    console.log('  LTV:', sig.checks.ltv.passed ? 'PASS' : 'FAIL', '-', sig.checks.ltv.message)
-    console.log('  Revocation:', sig.checks.revocation.passed ? 'PASS' : 'FAIL', '-', sig.checks.revocation.message)
   }
 }
 
-describe('Sample PDF Verification', () => {
-  it('TWCA Docusign TSP sample: TWCA sig trusted, DocuSign sig untrusted (foreign CA)', async () => {
-    const pdfPath = resolve(SAMPLE_DIR, '(TWCA 正式環境)Docusign TSP 簽章範例.pdf')
-    const pdfData = readFileSync(pdfPath)
-    const result = await verifyPdfSignatures(pdfData, 'TWCA_Docusign_TSP.pdf')
+describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
+  beforeAll(() => setLocale('zh-TW'))
 
-    logVerification('TWCA Docusign TSP', result)
+  it('check states agree with each signature status (what the panel colours show)', async () => {
+    await expectStatesMatchStatus(false)
+  })
 
-    // Mixed-CA doc: overall status is whichever is worst.
-    expect(['trusted', 'unknown']).toContain(result.status)
-
-    // Per-signature assertions
-    for (const sig of result.signatures) {
-      if (sig.signerName.startsWith('DocTimeStamp')) continue
-      // Document integrity must always pass — these are real signed PDFs.
-      expect(sig.checks.integrity.passed).toBe(true)
-      // Certificate chain must build (structurally).
-      expect(sig.checks.certificateChain.passed).toBe(true)
-      // Validity at signing time must hold.
-      expect(sig.checks.validity.passed).toBe(true)
-    }
-
-    // The TWCA-rooted signature should now have Trust: PASS.
-    // The DocuSign-rooted signature stays untrusted because DigiCert isn't
-    // in our Taiwan trust store.
-    const taiwanSig = result.signatures.find((s) => /HSMT|TWES/i.test(s.signerName))
-    if (taiwanSig) {
-      expect(taiwanSig.checks.trustRoot.passed).toBe(true)
-    }
-    const docusignSig = result.signatures.find((s) => /DocuSign/i.test(s.signerName))
-    if (docusignSig) {
-      expect(docusignSig.checks.trustRoot.passed).toBe(false)
+  it('HSM samples: signatures intact and trusted path, but TSA revocation is not embedded', async () => {
+    for (const file of HSM_SAMPLES) {
+      const result = await verify(file)
+      expect(result.signatures, file).toHaveLength(2)
+      for (const sig of result.signatures) {
+        expect(sig.checks.integrity.passed).toBe(true)
+        expect(sig.checks.certificateChain.passed).toBe(true)
+        expect(sig.checks.trustRoot.passed).toBe(true)
+        // The documents embed CRLs for the signer path only; without the TSA's
+        // revocation data the timestamp time cannot be relied on offline.
+        expect(sig.checks.timestamp?.passed).toBe(false)
+        expect(sig.checks.timestamp?.detailsI18nKey).toBe('core.timestampVerifier.tsaRevocationUnknown')
+        expect(sig.status).toBe('unknown')
+      }
+      expect(result.status).toBe('unknown')
     }
   })
 
-  it('AATL sample: both signatures fully trusted (every check passes)', async () => {
-    const pdfPath = resolve(SAMPLE_DIR, '範例文件(以工商憑證換發AATL憑證簽署).pdf')
-    const pdfData = readFileSync(pdfPath)
-    const result = await verifyPdfSignatures(pdfData, 'AATL_sample.pdf')
+  it('rejects a self-signed signer', async () => {
+    const result = await verify('self-signed.pdf')
+    expect(result.status).toBe('failed')
+    expect(result.signatures[0].checks.certificateChain.i18nKey).toBe('core.chain.selfSignedNotSupported')
+    expect(result.signatures[0].checks.integrity.passed).toBe(true)
+  })
 
-    logVerification('工商憑證 AATL', result)
+  it('ignores signatures inside attached PDFs and rejects the self-signed outer signature', async () => {
+    const result = await verify('attached-signed-pdfs.pdf')
+    expect(result.signatures).toHaveLength(1)
+    expect(result.signatures[0].checks.certificateChain.i18nKey).toBe('core.chain.selfSignedNotSupported')
+    expect(result.status).toBe('failed')
+  })
 
-    // Every gate passes for both signatures — overall is trusted.
-    expect(result.status).toBe('trusted')
+  it('expired one-day HSM certificate: embedded OCSP cannot be anchored offline (TSA revocation unknown)', async () => {
+    const result = await verify('expired-hsm-and-foreign-ca.pdf')
+    expect(result.status).toBe('unknown')
+    const twca = result.signatures.find((s) => /HSMT/.test(s.signerName))!
+    expect(twca.checks.integrity.passed).toBe(true)
+    expect(twca.checks.trustRoot.passed).toBe(true)
+    expect(twca.checks.revocation.passed).toBe(false)
+    expect(twca.status).toBe('unknown')
+    // DocuSign chains to DigiCert, which is not a Taiwan root
+    const docusign = result.signatures.find((s) => /DocuSign/i.test(s.signerName))!
+    expect(docusign.checks.integrity.passed).toBe(true)
+    expect(docusign.checks.trustRoot.passed).toBe(false)
+    expect(docusign.status).toBe('unknown')
+  })
 
-    for (const sig of result.signatures) {
-      if (sig.signerName.startsWith('DocTimeStamp')) continue
-      expect(sig.status).toBe('trusted')
-      expect(sig.checks.integrity.passed).toBe(true)
-      expect(sig.checks.certificateChain.passed).toBe(true)
-      expect(sig.checks.validity.passed).toBe(true)
-      expect(sig.checks.trustRoot.passed).toBe(true)
-      expect(sig.checks.revocation.passed).toBe(true)
-      // Timestamp must pass — embedded TWCA TSA signature now verifies.
-      expect(sig.checks.timestamp?.passed).toBe(true)
-      // LTV (B-LT or higher) must be reported.
-      expect(sig.checks.ltv.passed).toBe(true)
-      expect(sig.ltvLevel === 'B-LT' || sig.ltvLevel === 'B-LTA').toBe(true)
+  it('does not accept a timestamp from a non-Taiwan TSA', async () => {
+    const result = await verify('foreign-tsa.pdf')
+    const sig = result.signatures[0]
+    expect(sig.checks.trustRoot.passed).toBe(true)
+    expect(sig.checks.timestamp?.passed).toBe(false)
+    expect(sig.status).toBe('unknown')
+  })
+
+  it('IXML signatures chain to TWCA Information XML Plus Root CA (official TWCA repository)', async () => {
+    const result = await verify('ixml-plus-signed.pdf')
+    expect(result.signatures).toHaveLength(2)
+    expect(result.signatures[0].checks.trustRoot.passed).toBe(true)
+    expect(result.signatures[0].checks.trustRoot.details).toContain('TWCA Information XML Plus Root CA')
+    expect(result.signatures[1].checks.trustRoot.passed).toBe(true)
+    // Offline the TSA revocation cannot be proven (not embedded).
+    expect(result.status).toBe('unknown')
+  })
+
+  it('reports no signatures for an unsigned document', async () => {
+    const result = await verify('unsigned.pdf')
+    expect(result.signatures).toHaveLength(0)
+    expect(result.status).toBe('unknown')
+  })
+
+  it('never reports an encrypted document it cannot fully inspect as trusted', async () => {
+    const result = await verify('encrypted-signed.pdf')
+    expect(result.status).not.toBe('trusted')
+    expect(result.signatures[0].checks.integrity.passed).toBe(true)
+  })
+})
+
+describe.skipIf(!hasSamples || !process.env.PDF_SAMPLE_ONLINE)('Sample PDF verification (online)', () => {
+  beforeAll(() => setLocale('zh-TW'))
+
+  it('check states agree with each signature status (online)', async () => {
+    await expectStatesMatchStatus(true)
+  })
+
+  it('expired one-day HSM certificate is trusted through the OCSP in its signed attributes', async () => {
+    const result = await verify('expired-hsm-and-foreign-ca.pdf', true)
+    const twca = result.signatures.find((s) => /HSMT/.test(s.signerName))!
+    expect(twca.status).toBe('trusted')
+    expect(twca.checks.revocation.passed).toBe(true)
+    // embedded evidence, not an online answer: the certificate expired in 2025-12
+    expect(twca.checks.revocation.i18nKey).toBe('core.revocation.notRevokedEmbedded')
+    expect(twca.checks.revocation.details).toContain('OCSP')
+    // the document stays "not fully verified" because of the DocuSign (DigiCert) signature
+    expect(result.status).toBe('unknown')
+  })
+
+  it('HSM and IXML samples are trusted once the TSA and signer revocation can be checked online', async () => {
+    for (const file of [...HSM_SAMPLES, 'ixml-plus-signed.pdf']) {
+      const result = await verify(file, true)
+      expect(result.status, file).toBe('trusted')
+      for (const sig of result.signatures) {
+        expect(sig.checks.timestamp?.passed).toBe(true)
+        expect(sig.checks.revocation.passed).toBe(true)
+      }
     }
   })
 })

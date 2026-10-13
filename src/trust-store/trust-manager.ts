@@ -2,6 +2,7 @@ import type { ParsedCertificate, TrustAnchor } from '@/types'
 import { parseCertificateFromBytes, pemToDer } from '@/core/certificate/cert-utils'
 import {
   TAIWAN_ROOT_CERTIFICATES,
+  TAIWAN_INTERMEDIATE_CERTIFICATES,
   type TrustAnchorEntry,
   hasAnyEmbeddedPem,
 } from './taiwan-roots'
@@ -12,7 +13,10 @@ import {
 
 let signingTrustCache: ParsedCertificate[] | null = null
 let tsaTrustCache: ParsedCertificate[] | null = null
+let intermediateCache: ParsedCertificate[] | null = null
 let initWarnings: string[] = []
+/** Anchor fingerprint → category (government / private). */
+const anchorCategories = new Map<string, TrustAnchorEntry['category']>()
 
 /**
  * Convert a fingerprint string (with or without colons) to a normalized
@@ -32,9 +36,8 @@ async function loadEntries(
   const populated = entries.filter((e) => e.pem.trim().length > 0)
   if (populated.length === 0) {
     warnings.push(
-      `[${storeLabel}] Trust store is EMPTY — no root anchors loaded. ` +
-        `All signatures will report "trust anchor not found". ` +
-        `Populate src/trust-store/taiwan-roots.ts (or taiwan-tsa-roots.ts) with verified PEM bodies.`
+      `[${storeLabel}] Trust store is EMPTY — no certificates loaded. ` +
+        `Regenerate src/trust-store/generated-anchors.ts (scripts/trust-store/build-trust-store.mjs).`
     )
     return { anchors, warnings }
   }
@@ -44,22 +47,24 @@ async function loadEntries(
       const der = pemToDer(entry.pem)
       const parsed = await parseCertificateFromBytes(der)
 
-      // Fingerprint pinning: if the entry declares an expected fingerprint,
-      // reject the PEM unless it matches. This catches accidental swap-ins
-      // and supply-chain tampering of the source file.
-      if (entry.expectedFingerprint && entry.expectedFingerprint.trim().length > 0) {
-        const expected = normalizeFingerprint(entry.expectedFingerprint)
-        const actual = normalizeFingerprint(parsed.fingerprint)
-        if (expected !== actual) {
-          warnings.push(
-            `[${storeLabel}] Refusing to trust "${entry.name}": ` +
-              `fingerprint mismatch (expected ${expected.slice(0, 16)}..., got ${actual.slice(0, 16)}...)`
-          )
-          continue
-        }
+      // Fingerprint pinning: refuse any entry whose DER does not hash to the
+      // recorded fingerprint (accidental swap-in or tampering of the source).
+      if (!entry.expectedFingerprint) {
+        warnings.push(`[${storeLabel}] Refusing "${entry.name}": no pinned fingerprint`)
+        continue
+      }
+      const expected = normalizeFingerprint(entry.expectedFingerprint)
+      const actual = normalizeFingerprint(parsed.fingerprint)
+      if (expected !== actual) {
+        warnings.push(
+          `[${storeLabel}] Refusing to trust "${entry.name}": ` +
+            `fingerprint mismatch (expected ${expected.slice(0, 16)}..., got ${actual.slice(0, 16)}...)`
+        )
+        continue
       }
 
       anchors.push(parsed)
+      anchorCategories.set(normalizeFingerprint(parsed.fingerprint), entry.category)
     } catch (error) {
       warnings.push(
         `[${storeLabel}] Failed to parse "${entry.name}": ${
@@ -73,11 +78,11 @@ async function loadEntries(
 }
 
 /**
- * Initialize trust stores (signing CAs + TSAs).
+ * Initialize trust stores (signing CAs, TSAs, known intermediates).
  * Idempotent — second call returns the cached anchors.
  */
 export async function initializeTrustStore(): Promise<ParsedCertificate[]> {
-  if (signingTrustCache && tsaTrustCache) {
+  if (signingTrustCache && tsaTrustCache && intermediateCache) {
     return signingTrustCache
   }
 
@@ -91,11 +96,12 @@ export async function initializeTrustStore(): Promise<ParsedCertificate[]> {
   tsaTrustCache = tsa.anchors
   initWarnings.push(...tsa.warnings)
 
-  // Emit warnings to console so developers see them at build/load time.
-  if (initWarnings.length > 0) {
-    for (const w of initWarnings) {
-      console.warn(w)
-    }
+  const intermediates = await loadEntries(TAIWAN_INTERMEDIATE_CERTIFICATES, 'intermediate')
+  intermediateCache = intermediates.anchors
+  initWarnings.push(...intermediates.warnings)
+
+  for (const w of initWarnings) {
+    console.warn(w)
   }
 
   return signingTrustCache
@@ -103,7 +109,6 @@ export async function initializeTrustStore(): Promise<ParsedCertificate[]> {
 
 /**
  * Get warnings raised during the last initializeTrustStore() call.
- * UI surfaces these so users know the trust store is incomplete.
  */
 export function getTrustStoreWarnings(): string[] {
   return [...initWarnings]
@@ -121,161 +126,125 @@ export function isTsaTrustStoreEmpty(): boolean {
  * Get signing CA trust anchors (must call initializeTrustStore first).
  */
 export function getTrustAnchors(): ParsedCertificate[] {
-  if (!signingTrustCache) return []
-  return signingTrustCache
+  return signingTrustCache ?? []
 }
 
 /**
  * Get TSA trust anchors (must call initializeTrustStore first).
  */
 export function getTsaTrustAnchors(): ParsedCertificate[] {
-  if (!tsaTrustCache) return []
-  return tsaTrustCache
+  return tsaTrustCache ?? []
 }
 
 /**
- * Match by fingerprint (preferred) with a fallback to subject+serial.
- * Returns true ONLY if at least one anchor in the store matches the cert.
+ * Known Taiwan intermediates — path-building helpers, never anchors.
  */
-function matchAnchor(cert: ParsedCertificate, anchors: ParsedCertificate[]): boolean {
-  if (anchors.length === 0) return false
+export function getKnownIntermediates(): ParsedCertificate[] {
+  return intermediateCache ?? []
+}
+
+/**
+ * Anchors are matched by SHA-256 fingerprint of the exact DER only. Name or
+ * serial-number matches are never sufficient: anyone can mint a certificate
+ * with an arbitrary subject DN and serial number.
+ */
+function findByFingerprint(
+  cert: ParsedCertificate,
+  anchors: ParsedCertificate[]
+): ParsedCertificate | null {
   const certFp = normalizeFingerprint(cert.fingerprint)
-  return anchors.some((anchor) => {
-    if (normalizeFingerprint(anchor.fingerprint) === certFp) return true
-    return anchor.subject === cert.subject && anchor.serialNumber === cert.serialNumber
-  })
+  return anchors.find((anchor) => normalizeFingerprint(anchor.fingerprint) === certFp) ?? null
 }
 
 /**
  * Check if a certificate is a trust anchor (signing CA store).
  */
 export function isTrustAnchor(cert: ParsedCertificate): boolean {
-  return matchAnchor(cert, getTrustAnchors())
+  return findByFingerprint(cert, getTrustAnchors()) !== null
 }
 
 /**
  * Check if a certificate is a TSA trust anchor.
  */
 export function isTsaTrustAnchor(cert: ParsedCertificate): boolean {
-  return matchAnchor(cert, getTsaTrustAnchors())
+  return findByFingerprint(cert, getTsaTrustAnchors()) !== null
 }
 
 /**
- * Find trust anchor for a certificate (signing store).
+ * Return the signing-store anchor that IS this certificate (fingerprint match).
  */
 export function findTrustAnchor(cert: ParsedCertificate): ParsedCertificate | null {
-  const anchors = getTrustAnchors()
-  const certFp = normalizeFingerprint(cert.fingerprint)
+  return findByFingerprint(cert, getTrustAnchors())
+}
 
-  const direct = anchors.find((a) => normalizeFingerprint(a.fingerprint) === certFp)
-  if (direct) return direct
-
-  const issuer = anchors.find((a) => a.subject === cert.issuer)
-  if (issuer) {
-    if (cert.authorityKeyIdentifier && issuer.subjectKeyIdentifier) {
-      if (cert.authorityKeyIdentifier === issuer.subjectKeyIdentifier) {
-        return issuer
-      }
-    } else {
-      return issuer
-    }
-  }
-
-  return null
+/** Category of a trust anchor (by fingerprint), or null if it is not one. */
+export function getAnchorCategory(cert: ParsedCertificate): TrustAnchorEntry['category'] | null {
+  return anchorCategories.get(normalizeFingerprint(cert.fingerprint)) ?? null
 }
 
 export function getTrustAnchorInfo(): TrustAnchor[] {
-  const anchors = getTrustAnchors()
-  return anchors.map((cert) => ({
+  return getTrustAnchors().map((cert) => ({
     name: getCommonName(cert.subject),
     certificate: cert,
     fingerprint: cert.fingerprint,
   }))
 }
 
-/**
- * Strictly check if a chain terminates at a trust anchor in the signing store.
- * Used in place of the old isComplete-as-trust check.
- */
-export function isChainTrusted(chain: ParsedCertificate[]): boolean {
-  if (chain.length === 0) return false
-  const anchors = getTrustAnchors()
-  if (anchors.length === 0) return false
-
-  // The chain's last cert must be (or be issued by) a trust anchor.
-  const lastCert = chain[chain.length - 1]
-  if (isTrustAnchor(lastCert)) return true
-
-  // If the last cert is self-signed but NOT in trust store, the chain is
-  // structurally complete but the root is unknown — fail closed.
-  return false
-}
-
-export function getTrustedIssuerName(cert: ParsedCertificate): string {
-  const anchor = findTrustAnchor(cert)
-  if (anchor) {
-    return getCommonName(anchor.subject)
-  }
-  return 'Unknown'
-}
-
 function getCommonName(dn: string): string {
   const match = dn.match(/CN=([^,]+)/)
   if (match) return match[1].trim()
+  const ouMatch = dn.match(/OU=([^,]+)/)
+  if (ouMatch) return ouMatch[1].trim()
   const oMatch = dn.match(/O=([^,]+)/)
   if (oMatch) return oMatch[1].trim()
   return dn
 }
 
 /**
- * Add a custom trust anchor (used by tests and the runtime manifest loader).
+ * Add a custom trust anchor (tests only; the shipped extension never calls it).
  */
 export async function addCustomTrustAnchor(pem: string): Promise<void> {
   if (!signingTrustCache) {
     await initializeTrustStore()
   }
-  const der = pemToDer(pem)
-  const parsed = await parseCertificateFromBytes(der)
-  signingTrustCache!.push(parsed)
+  const parsed = await parseCertificateFromBytes(pemToDer(pem))
+  signingTrustCache = [...signingTrustCache!, parsed]
 }
 
 export async function addCustomTsaTrustAnchor(pem: string): Promise<void> {
   if (!tsaTrustCache) {
     await initializeTrustStore()
   }
-  const der = pemToDer(pem)
-  const parsed = await parseCertificateFromBytes(der)
-  tsaTrustCache!.push(parsed)
+  const parsed = await parseCertificateFromBytes(pemToDer(pem))
+  tsaTrustCache = [...tsaTrustCache!, parsed]
 }
 
 export function clearTrustAnchors(): void {
   signingTrustCache = null
   tsaTrustCache = null
+  intermediateCache = null
   initWarnings = []
 }
 
 export function getTrustStoreStats(): {
   totalAnchors: number
   totalTsaAnchors: number
+  totalIntermediates: number
   signingAnchors: Array<{ name: string; validUntil: Date; fingerprint: string }>
   tsaAnchors: Array<{ name: string; validUntil: Date; fingerprint: string }>
   warnings: string[]
 } {
-  const signing = getTrustAnchors()
-  const tsa = getTsaTrustAnchors()
+  const summarize = (a: ParsedCertificate) => ({
+    name: getCommonName(a.subject),
+    validUntil: a.notAfter,
+    fingerprint: a.fingerprint.slice(0, 16) + '...',
+  })
   return {
-    totalAnchors: signing.length,
-    totalTsaAnchors: tsa.length,
-    signingAnchors: signing.map((a) => ({
-      name: getCommonName(a.subject),
-      validUntil: a.notAfter,
-      fingerprint: a.fingerprint.slice(0, 16) + '...',
-    })),
-    tsaAnchors: tsa.map((a) => ({
-      name: getCommonName(a.subject),
-      validUntil: a.notAfter,
-      fingerprint: a.fingerprint.slice(0, 16) + '...',
-    })),
+    totalAnchors: getTrustAnchors().length,
+    totalTsaAnchors: getTsaTrustAnchors().length,
+    totalIntermediates: getKnownIntermediates().length,
+    signingAnchors: getTrustAnchors().map(summarize),
+    tsaAnchors: getTsaTrustAnchors().map(summarize),
     warnings: getTrustStoreWarnings(),
   }
 }

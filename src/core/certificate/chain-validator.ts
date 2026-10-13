@@ -1,6 +1,5 @@
-import type { ParsedCertificate, CertificateChain, CheckResult } from '@/types'
+import type { CertificateChain, CheckResult } from '@/types'
 import { createPassedCheck, createFailedCheck } from '@/types'
-import { isCertificateValid } from './cert-utils'
 import { verifyIssuedBy } from './chain-builder'
 
 export interface ChainValidationResult {
@@ -152,7 +151,7 @@ async function validateChainSignatures(
   }
 
   // For self-signed root, verify self-signature
-  if (chain.root) {
+  if (chain.root && chain.root.subject === chain.root.issuer) {
     const isValid = await verifyIssuedBy(chain.root, chain.root)
     if (!isValid) {
       return {

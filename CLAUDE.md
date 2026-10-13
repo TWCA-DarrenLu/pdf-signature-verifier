@@ -64,12 +64,14 @@ The main entry point is `verifyPdfSignatures()` in `src/core/verifier.ts`. For e
 1. **ByteRange validation** - Verify the byte range covers the document correctly
 2. **PKCS#7 parsing** - Parse the CMS/PKCS#7 SignedData structure
 3. **Integrity check** - Verify message digest, then cryptographic signature over signed attributes
-4. **Certificate chain** - Build chain from signer cert through intermediates to root
-5. **Trust root** - Check if chain terminates at a known root (self-signed CA)
+4. **Certificate chain** - `chain-builder.ts`: every link signature-verified (pkijs), CA/keyCertSign/pathLen enforced, backtracks across same-name issuers
+5. **Trust root** - Path must end at an anchor matched by SHA-256 fingerprint only; self-signed signer certificates are rejected
 6. **Timestamp** - Verify embedded RFC 3161 timestamp (hash of signatureValue bytes)
-7. **Validity** - Check certificate was valid at signing time (with LTV fallback for expired certs)
-8. **Revocation** - Check embedded OCSP/CRL, then optionally online OCSP/CRL
+7. **Validity** - Validation time = trusted timestamp time, else now
+8. **Revocation** - `revocation-checker.ts` / `revocation-validator.ts`: OCSP and CRL signatures and responder authorization verified; embedded first, online only for unexpired certs
 9. **LTV** - Check Long-Term Validation completeness (embedded revocation + timestamp)
+
+Overall per-signature status comes from `determineSignatureStatus()` (structured inputs, never message text). Changes after each signature are found by `pdf/incremental-update.ts` (xref-based revision diff + reachability from the page tree, DocMDP-aware); TSA path revocation must be proven before a timestamp's time is used.
 
 Each step produces a `CheckResult` (`{ passed, message, details, i18nKey?, i18nParams?, detailsI18nKey?, detailsI18nParams? }`). The overall status is `trusted | unknown | failed`.
 
@@ -78,7 +80,9 @@ CheckResult stores both pre-rendered strings and i18n keys. Core modules run in 
 ## Extension Architecture
 
 - **background.ts** - Service worker handling network requests (OCSP, CRL, certificate fetch, PDF fetch) and delegating verification
-- **content.ts** - Detects PDF links/embeds on pages, injects verify buttons, manages side panel (iframe) for results
+- **Releases** - `.github/workflows/release.yml` + `scripts/release/` (store-api.mjs: Chrome Web Store API v2 with a service account, Edge Add-ons API v1.1). Version single source: `package.json` (wxt.config.ts has no version). Icons live in `src/public/` (WXT publicDir with srcDir 'src'; the root `public/` is not packaged). Setup: docs/release.md
+- **content.ts** - Detects PDF links/embeds on pages, injects verify buttons, manages side panel (iframe) for results. In the PDF viewer it verifies automatically per `pdf-verifier-settings.autoVerifyScope` (src/settings/auto-verify.ts; http(s) and, with file access allowed, file://), reports each verdict to the background (`tab-state`) for the toolbar badge, and accepts dropped PDFs on its bar (verified by the background via `verify-pdf`). The panel's "re-check" posts `pdf-panel-recheck`; context-menu results arrive as `show-verifying` / `show-result` / `show-error`
+- **background.ts** - Downloads and verifies PDFs (`verify-pdf-url`, `verify-pdf`), keeps the per-tab result in `chrome.storage.session` (`tab-result:<tabId>`) with the toolbar badge, and owns the right-click menu. Online OCSP/CRL answers are cached by src/core/revocation/revocation-cache.ts; `fresh` / `refreshRevocation` bypasses it
 - **popup/** - React components for the popup UI and verification result panel
 
 Messages flow: content script -> background (via `chrome.runtime.sendMessage`) -> core verifier -> result back to content -> panel iframe.
@@ -101,7 +105,7 @@ Messages flow: content script -> background (via `chrome.runtime.sendMessage`) -
 - **Small files**: Each module handles one concern (e.g., `digest-verifier.ts`, `chain-builder.ts`, `ocsp-client.ts`).
 - **Path alias**: `@/` maps to `src/` (configured in tsconfig and vitest).
 - **Error handling**: Always catch and wrap errors with descriptive messages via `t()`.
-- **No hardcoded secrets**: Root certificates loaded dynamically from `taiwan-roots.ts`.
+- **Trust store**: generated file `src/trust-store/generated-anchors.ts` — never edit by hand; change `scripts/trust-store/manifest.json` + `certs/` and run `node scripts/trust-store/build-trust-store.mjs`.
 
 ## Key Dependencies
 
@@ -118,7 +122,8 @@ Messages flow: content script -> background (via `chrome.runtime.sendMessage`) -
 - Test environment: jsdom
 - Setup file: `tests/setup.ts`
 - Test pattern: `tests/**/*.{test,spec}.{ts,tsx}`
-- Existing tests cover: byte-range, digest verification, i18n, trust manager, types, sample PDF verification
+- Existing tests cover: byte-range, digest verification, i18n, trust store/policy, chain building with real signatures (`tests/helpers/test-pki.ts`), timestamp trust, incremental updates, sample PDF verification (needs `PDF_Sample/`)
+- E2E: `npm run build` then `npx playwright test --project=chromium --reporter=list` (loads `.output/chrome-mv3`)
 
 ## Browser Extension Rules
 
