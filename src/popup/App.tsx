@@ -4,6 +4,16 @@ import { useVerification } from './hooks/useVerification'
 import { useSettings } from './hooks/useSettings'
 import { DocumentIcon, XIcon } from './components/icons'
 import { t, setLocale, detectBrowserLocale, resolveSummary } from '@/i18n'
+import { parseSiteList, type AutoVerifyScope } from '@/settings/auto-verify'
+import type { VerificationResult } from '@/types'
+import { restoreDates } from './restore-dates'
+
+/** Result the page reported for a tab (shown by the toolbar badge). */
+interface TabEntry {
+  tabId: number
+  result: VerificationResult
+  source: { url: string; fileName: string } | null
+}
 
 const isFirefox = /Firefox\//i.test(navigator.userAgent)
 const isTabMode = typeof window !== 'undefined' && window.location.search.includes('source=tab')
@@ -18,12 +28,57 @@ function getQueryParam(name: string): string | null {
 
 export function App() {
   const { result, isLoading, error, verify, reset } = useVerification()
-  const { settings, updateSettings } = useSettings()
+  const { settings, updateSettings, isLoading: settingsLoading } = useSettings()
   const [showSettings, setShowSettings] = useState(false)
   const [, forceUpdate] = useState(0)
   const [pdfTabUrl, setPdfTabUrl] = useState<string | null>(getQueryParam('pdfUrl'))
   const [verifyingPdfTab, setVerifyingPdfTab] = useState(false)
   const [lastFile, setLastFile] = useState<File | null>(null)
+  const [tabEntry, setTabEntry] = useState<TabEntry | null>(null)
+  const [rechecking, setRechecking] = useState(false)
+  const [recheckError, setRecheckError] = useState<string | null>(null)
+  const [sitesText, setSitesText] = useState('')
+  const [fileAccessMissing, setFileAccessMissing] = useState(false)
+
+  // Local PDF tab: without "Allow access to file URLs" nothing can read it
+  useEffect(() => {
+    if (!pdfTabUrl?.startsWith('file:')) return
+    chrome.extension?.isAllowedFileSchemeAccess?.()
+      .then((allowed) => setFileAccessMissing(!allowed))
+      .catch(() => {})
+  }, [pdfTabUrl])
+
+  // fill the editor once the stored settings are loaded; afterwards it keeps what is typed
+  useEffect(() => {
+    if (!settingsLoading) setSitesText(settings.autoVerifySites.join('\n'))
+  }, [settingsLoading])
+
+  // Show what the badge shows: the result verified for the active tab — also
+  // when it arrives while the popup is open (badge still "…")
+  useEffect(() => {
+    if (isTabMode || isFirefox) return
+    let listener: ((changes: Record<string, chrome.storage.StorageChange>, area: string) => void) | null = null
+    let closed = false
+    const show = (tabId: number, entry: { result?: VerificationResult; source?: TabEntry['source'] } | undefined) => {
+      if (entry?.result) setTabEntry({ tabId, result: restoreDates(entry.result), source: entry.source ?? null })
+    }
+    try {
+      chrome.tabs?.query?.({ active: true, currentWindow: true }, (tabs) => {
+        const tabId = tabs?.[0]?.id
+        if (closed || tabId === undefined || !chrome.storage?.session) return
+        const key = `tab-result:${tabId}`
+        chrome.storage.session.get(key).then((stored) => show(tabId, stored[key])).catch(() => {})
+        listener = (changes, area) => {
+          if (area === 'session' && changes[key]) show(tabId, changes[key].newValue)
+        }
+        chrome.storage.onChanged.addListener(listener)
+      })
+    } catch { /* ignore */ }
+    return () => {
+      closed = true
+      if (listener) chrome.storage.onChanged.removeListener(listener)
+    }
+  }, [])
 
   useEffect(() => {
     if (settings.language) {
@@ -115,12 +170,45 @@ export function App() {
     }
   }
 
-  const handleFileSelect = async (file: File) => {
+  const handleFileSelect = async (file: File, fresh = false) => {
     setLastFile(file)
+    setTabEntry(null)
     await verify(file, {
       checkOnlineRevocation: true,
+      refreshRevocation: fresh,
     })
   }
+
+  /** Re-check the active tab's PDF: fetch it again, ask OCSP/CRL again, update the badge. */
+  const handleRecheckTab = async () => {
+    const entry = tabEntry
+    if (!entry?.source || rechecking) return
+    setRechecking(true)
+    setRecheckError(null)
+    try {
+      const response = (await chrome.runtime.sendMessage({
+        action: 'verify-pdf-url',
+        url: entry.source.url,
+        fileName: entry.source.fileName,
+        fresh: true,
+      })) as { result?: VerificationResult; error?: string } | undefined
+      if (!response?.result) {
+        setRecheckError(response?.error ?? t('verification.noResult'))
+        return
+      }
+      const fresh = response.result
+      const state = fresh.signatures.length === 0 ? 'none' : fresh.status
+      await chrome.runtime.sendMessage({ action: 'tab-state', tabId: entry.tabId, state, result: fresh, source: entry.source })
+      setTabEntry({ ...entry, result: restoreDates(fresh) })
+    } catch (err) {
+      setRecheckError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRechecking(false)
+    }
+  }
+
+  const shown = result ?? tabEntry?.result ?? null
+  const canRecheck = result ? lastFile !== null : Boolean(tabEntry?.source)
 
 
   return (
@@ -156,15 +244,34 @@ export function App() {
       {showSettings && (
         <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
           <div className="space-y-3">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.autoVerify}
-                onChange={(e) => updateSettings({ autoVerify: e.target.checked })}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700">{t('settings.autoVerify')}</span>
-            </label>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm text-gray-700">{t('settings.autoVerify')}</span>
+                <select
+                  value={settings.autoVerifyScope}
+                  onChange={(e) => updateSettings({ autoVerifyScope: e.target.value as AutoVerifyScope })}
+                  data-testid="auto-verify-scope"
+                  className="text-sm border border-gray-300 rounded px-2 py-1"
+                >
+                  <option value="all">{t('settings.scopeAll')}</option>
+                  <option value="listed">{t('settings.scopeListed')}</option>
+                  <option value="off">{t('settings.scopeOff')}</option>
+                </select>
+              </div>
+              {settings.autoVerifyScope === 'listed' && (
+                <textarea
+                  value={sitesText}
+                  onChange={(e) => {
+                    setSitesText(e.target.value)
+                    void updateSettings({ autoVerifySites: parseSiteList(e.target.value) })
+                  }}
+                  placeholder={t('settings.sitesPlaceholder')}
+                  rows={3}
+                  data-testid="auto-verify-sites"
+                  className="w-full text-sm border border-gray-300 rounded px-2 py-1 font-mono"
+                />
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-700">{t('settings.language')}</span>
               <select
@@ -202,44 +309,49 @@ export function App() {
               {t('verification.retryButton')}
             </button>
           </div>
-        ) : result ? (
+        ) : shown ? (
           <div className="space-y-4">
+            {!result && tabEntry && (
+              <div className="text-xs text-gray-500">{t('popup.currentTabResult')}</div>
+            )}
             {/* File Info */}
             <div className="flex items-center gap-3">
               <DocumentIcon className="w-6 h-6 text-gray-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
-                <div className="font-medium text-gray-900 truncate">{result.fileName}</div>
+                <div className="font-medium text-gray-900 truncate">{shown.fileName}</div>
               </div>
             </div>
 
             {/* Status Summary */}
             <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
               <div className="flex items-center justify-between">
-                <StatusBadge status={result.status} size="lg" />
+                <StatusBadge status={shown.status} size="lg" />
                 <div className="flex items-center gap-3">
-                  {lastFile && (
+                  {canRecheck && (
                     <button
-                      onClick={() => handleFileSelect(lastFile)}
+                      onClick={() => (result && lastFile ? handleFileSelect(lastFile, true) : handleRecheckTab())}
+                      disabled={rechecking}
                       title={t('verification.recheckHint')}
-                      className="text-sm text-gray-600 hover:text-gray-800"
+                      className="text-sm text-gray-600 hover:text-gray-800 disabled:opacity-60"
                     >
-                      {t('verification.recheck')}
+                      {rechecking ? t('verification.loading') : t('verification.recheck')}
                     </button>
                   )}
-                  <ExportButton result={result} />
+                  <ExportButton result={shown} />
                   <button
-                    onClick={reset}
+                    onClick={() => { reset(); setTabEntry(null) }}
                     className="text-sm text-blue-600 hover:text-blue-700"
                   >
                     {t('verification.verifyOther')}
                   </button>
                 </div>
               </div>
-              <div className="mt-2 text-sm text-gray-600">{resolveSummary(result)}</div>
+              <div className="mt-2 text-sm text-gray-600">{resolveSummary(shown)}</div>
+              {recheckError && <div className="mt-1 text-xs text-red-600">{recheckError}</div>}
             </div>
 
             {/* Signature List */}
-            <SignatureList signatures={result.signatures} />
+            <SignatureList signatures={shown.signatures} />
           </div>
         ) : (
           <div className="space-y-4">
@@ -250,12 +362,26 @@ export function App() {
                   <DocumentIcon className="w-4 h-4 flex-shrink-0" />
                   {t('content.pdfDetected')}
                 </div>
-                <button
-                  onClick={handleVerifyCurrentPdf}
-                  className="w-full px-3 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors"
-                >
-                  {t('content.verifySignature')}
-                </button>
+                {fileAccessMissing ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-blue-900">{t('popup.fileAccessHint')}</div>
+                    <button
+                      onClick={() => chrome.tabs.create({
+                        url: `${/\bEdg\//.test(navigator.userAgent) ? 'edge' : 'chrome'}://extensions/?id=${chrome.runtime.id}`,
+                      })}
+                      className="w-full px-3 py-2 bg-white border border-blue-300 text-blue-700 text-sm rounded-md hover:bg-blue-100 transition-colors"
+                    >
+                      {t('popup.openExtensionSettings')}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleVerifyCurrentPdf}
+                    className="w-full px-3 py-2 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 transition-colors"
+                  >
+                    {t('content.verifySignature')}
+                  </button>
+                )}
               </div>
             )}
 

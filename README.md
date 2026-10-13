@@ -15,9 +15,14 @@ A browser extension that verifies digital signatures in PDF documents, with buil
 - **Full PDF signature verification** -- parses PDF structure, extracts PKCS#7/CMS signatures, and validates every step of the chain
 - **Taiwan PKI support** -- pre-loaded trust anchors for TWCA (commercial), GCA (government), and MOICA (citizen digital certificates)
 - **Automatic PDF detection** -- injects "Verify Signature" buttons next to PDF links and embedded PDFs on any webpage
-- **Built-in PDF viewer integration** -- notification bar below the toolbar when viewing a PDF directly in the browser; verification starts automatically (setting "Verify PDFs automatically when opened", on by default)
-- **Side panel results** -- verification results displayed in a slide-in panel without leaving the page, with a "Re-check" button
-  - Automatic verification limits: local `file://` PDFs need the file to be picked by hand; Edge/Brave cannot embed the panel, so the result stays on the bar until clicked (opens a window); the extension downloads the PDF again, so single-use links may fail; each run may query OCSP/CRL servers
+- **Built-in PDF viewer integration** -- notification bar below the toolbar when viewing a PDF directly in the browser; verification starts automatically (setting: all sites / listed sites only / off)
+- **Toolbar badge** -- the extension icon shows ✓ / ! / ✗ for the PDF in each tab; clicking it shows that result
+- **Side panel results** -- verification results displayed in a slide-in panel without leaving the page (Chrome and Edge), with a "Re-check" button that asks OCSP/CRL servers again
+- **Drop to verify** -- drop a downloaded or local PDF on the notification bar
+- **Right-click "Verify the digital signatures of this PDF"** -- on any link or embedded document, also links without `.pdf` in the URL
+- **Local PDFs** -- verified automatically once "Allow access to file URLs" is on in the extension details; otherwise pick or drop the file
+- **Revocation cache** -- OCSP / CRL answers are reused until their nextUpdate (at most 24 h) instead of being fetched for every PDF
+  - Limits: the extension downloads the PDF again, so single-use links may fail (drop the downloaded file instead); Brave is untested and opens the results in a window
 - **Comprehensive checks**:
   - Document integrity (message digest + cryptographic signature)
   - Certificate chain building and validation

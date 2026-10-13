@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { checkCertificateRevocation } from '@/core/revocation/revocation-checker'
+import { clearRevocationCache } from '@/core/revocation/revocation-cache'
+import { fetchBinary } from '@/core/network'
 import { issueCertificate, issueCrl, type TestCert } from '../helpers/test-pki'
 
 const onlineCrls = new Map<string, Uint8Array>()
@@ -14,6 +16,8 @@ let ca: TestCert
 
 beforeEach(async () => {
   onlineCrls.clear()
+  await clearRevocationCache()
+  vi.mocked(fetchBinary).mockClear()
   ca = await issueCertificate({ subjectCN: 'Test CA', isCA: true })
 })
 
@@ -97,5 +101,40 @@ describe('checkCertificateRevocation', () => {
     // signing time; it does, so the late revocation means "valid when signed".
     expect(outcome.status).toBe('good')
     expect(outcome.revokedAfterSigning).toBe(true)
+  })
+})
+
+describe('online revocation cache', () => {
+  const online = { embedded: null, allowOnline: true, atTime: new Date(), atTimeTrusted: false }
+
+  it('reuses a CRL until its nextUpdate instead of downloading it again', async () => {
+    const leaf = await leafOf(11)
+    onlineCrls.set(CRL_URL, await issueCrl({ issuer: ca }))
+    expect((await checkCertificateRevocation(leaf.parsed, ca.parsed, online)).status).toBe('good')
+    expect((await checkCertificateRevocation(leaf.parsed, ca.parsed, online)).status).toBe('good')
+    expect(fetchBinary).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks again on re-check and sees a new revocation', async () => {
+    const leaf = await leafOf(12)
+    onlineCrls.set(CRL_URL, await issueCrl({ issuer: ca }))
+    expect((await checkCertificateRevocation(leaf.parsed, ca.parsed, online)).status).toBe('good')
+    onlineCrls.set(CRL_URL, await issueCrl({ issuer: ca, revokedSerials: [12] }))
+    // cached answer is still within its validity window
+    expect((await checkCertificateRevocation(leaf.parsed, ca.parsed, online)).status).toBe('good')
+    const fresh = await checkCertificateRevocation(leaf.parsed, ca.parsed, { ...online, freshOnline: true })
+    expect(fresh.status).toBe('revoked')
+    expect(fetchBinary).toHaveBeenCalledTimes(2)
+  })
+
+  it('downloads again once the cached CRL is past its nextUpdate', async () => {
+    const leaf = await leafOf(13)
+    onlineCrls.set(CRL_URL, await issueCrl({ issuer: ca, nextUpdate: new Date(Date.now() + 60_000) }))
+    await checkCertificateRevocation(leaf.parsed, ca.parsed, online)
+    const later = new Date(Date.now() + 2 * 60_000 + 5 * 60_000 + 1_000) // past nextUpdate + clock skew
+    onlineCrls.set(CRL_URL, await issueCrl({ issuer: ca, thisUpdate: new Date(), nextUpdate: new Date(Date.now() + 86_400_000) }))
+    const outcome = await checkCertificateRevocation(leaf.parsed, ca.parsed, { ...online, atTime: later, now: later })
+    expect(outcome.status).toBe('good')
+    expect(fetchBinary).toHaveBeenCalledTimes(2)
   })
 })

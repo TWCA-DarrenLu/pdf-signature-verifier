@@ -97,7 +97,11 @@
     "autoVerify": "開啟 PDF 時自動驗證",
     "language": "語言",
     "langZhTW": "繁體中文",
-    "langEn": "English"
+    "langEn": "English",
+    "scopeAll": "所有網站",
+    "scopeListed": "僅指定網站",
+    "scopeOff": "關閉",
+    "sitesPlaceholder": "一行一個網域，例如 twca.com.tw（含子網域）"
   },
   "export": {
     "title": "匯出驗證報告 PDF",
@@ -130,7 +134,10 @@
     "noSignatures": "未發現數位簽章",
     "viewResult": "查看結果",
     "cannotFetchPdf": "無法取得 PDF 內容（可能為一次性或已過期的連結），請下載後拖放到擴充功能驗證",
-    "localFileHint": "本機檔案需手動選擇檔案驗證"
+    "localFileHint": "本機檔案：點「驗證簽章」選擇檔案，或把檔案拖曳到這列",
+    "dropHint": "已下載的 PDF 可直接拖曳到這列驗證",
+    "dropHere": "放開以驗證此 PDF",
+    "notPdf": "這不是 PDF 檔案"
   },
   "core": {
     "integrity": {
@@ -379,5 +386,13 @@
   "trust": {
     "government": "公部門",
     "private": "民間"
+  },
+  "contextMenu": {
+    "verifyLink": "驗證此 PDF 的數位簽章"
+  },
+  "popup": {
+    "currentTabResult": "目前分頁的驗證結果",
+    "fileAccessHint": "要直接驗證本機 PDF，請在擴充功能詳細資料開啟「允許存取檔案網址」",
+    "openExtensionSettings": "開啟擴充功能設定"
   }
 }

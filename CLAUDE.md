@@ -80,7 +80,8 @@ CheckResult stores both pre-rendered strings and i18n keys. Core modules run in 
 ## Extension Architecture
 
 - **background.ts** - Service worker handling network requests (OCSP, CRL, certificate fetch, PDF fetch) and delegating verification
-- **content.ts** - Detects PDF links/embeds on pages, injects verify buttons, manages side panel (iframe) for results. In the PDF viewer it verifies automatically unless `pdf-verifier-settings.autoVerify` is false (remote URLs only; inline panel opens automatically only in Chrome); the panel's "re-check" posts `pdf-panel-recheck` to the content script
+- **content.ts** - Detects PDF links/embeds on pages, injects verify buttons, manages side panel (iframe) for results. In the PDF viewer it verifies automatically per `pdf-verifier-settings.autoVerifyScope` (src/settings/auto-verify.ts; http(s) and, with file access allowed, file://), reports each verdict to the background (`tab-state`) for the toolbar badge, and accepts dropped PDFs on its bar (verified by the background via `verify-pdf`). The panel's "re-check" posts `pdf-panel-recheck`; context-menu results arrive as `show-verifying` / `show-result` / `show-error`
+- **background.ts** - Downloads and verifies PDFs (`verify-pdf-url`, `verify-pdf`), keeps the per-tab result in `chrome.storage.session` (`tab-result:<tabId>`) with the toolbar badge, and owns the right-click menu. Online OCSP/CRL answers are cached by src/core/revocation/revocation-cache.ts; `fresh` / `refreshRevocation` bypasses it
 - **popup/** - React components for the popup UI and verification result panel
 
 Messages flow: content script -> background (via `chrome.runtime.sendMessage`) -> core verifier -> result back to content -> panel iframe.

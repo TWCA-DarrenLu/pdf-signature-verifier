@@ -6,6 +6,7 @@ import {
   type RevocationEvidence,
 } from './revocation-validator'
 import { requestOcspResponse } from './ocsp-client'
+import { getCachedRevocation, putCachedRevocation } from './revocation-cache'
 
 export interface RevocationContext {
   /** Revocation data embedded in the PDF (signature attribute + DSS). */
@@ -16,6 +17,8 @@ export interface RevocationContext {
   atTime: Date
   /** atTime comes from a trusted RFC 3161 timestamp. */
   atTimeTrusted: boolean
+  /** Skip cached online answers (user asked to check again). */
+  freshOnline?: boolean
   now?: Date
 }
 
@@ -49,7 +52,7 @@ export async function checkCertificateRevocation(
 ): Promise<CertRevocationOutcome> {
   const now = ctx.now ?? new Date()
   const embedded = await findEmbeddedEvidence(cert, issuer, ctx, now)
-  const online = ctx.allowOnline && now <= cert.notAfter ? await findOnlineEvidence(cert, issuer, now) : null
+  const online = ctx.allowOnline && now <= cert.notAfter ? await findOnlineEvidence(cert, issuer, now, ctx.freshOnline === true) : null
 
   const fromEmbedded = embedded ? { ...interpret(embedded, ctx), source: 'embedded' as const, evidence: embedded } : null
   const fromOnline = online ? { ...interpret(online, ctx), source: 'online' as const, evidence: online } : null
@@ -92,14 +95,21 @@ async function findEmbeddedEvidence(
 async function findOnlineEvidence(
   cert: ParsedCertificate,
   issuer: ParsedCertificate,
-  now: Date
+  now: Date,
+  fresh: boolean
 ): Promise<RevocationEvidence | null> {
   try {
-    const ocspBytes = await requestOcspResponse(cert, issuer)
-    if (ocspBytes) {
-      const ev = await validateOcspResponse(ocspBytes, cert, issuer)
-      if (ev && ev.status !== 'unknown' && isCurrent(ev, now)) return ev
-    }
+    const ev = await cachedOrFetched(
+      `ocsp:${issuer.fingerprint}:${cert.serialNumber}`,
+      fresh,
+      now,
+      () => requestOcspResponse(cert, issuer),
+      async (bytes) => {
+        const ev = await validateOcspResponse(bytes, cert, issuer)
+        return ev && ev.status !== 'unknown' && isCurrent(ev, now) ? ev : null
+      }
+    )
+    if (ev) return ev
   } catch {
     // fall through to CRL
   }
@@ -107,15 +117,39 @@ async function findOnlineEvidence(
   const { fetchBinary } = await import('../network')
   for (const url of cert.crlDistributionPoints) {
     try {
-      const crlBytes = await fetchBinary(url)
-      if (!crlBytes) continue
-      const ev = await validateCrl(crlBytes, cert, issuer)
-      if (ev && isCurrent(ev, now)) return ev
+      const ev = await cachedOrFetched(`crl:${url}`, fresh, now, () => fetchBinary(url), async (bytes) => {
+        const ev = await validateCrl(bytes, cert, issuer)
+        return ev && isCurrent(ev, now) ? ev : null
+      })
+      if (ev) return ev
     } catch {
       continue
     }
   }
   return null
+}
+
+/**
+ * Use a cached answer when it still validates, otherwise fetch and cache.
+ * Bytes are validated in both cases; the cache only saves the round trip.
+ */
+async function cachedOrFetched(
+  key: string,
+  fresh: boolean,
+  now: Date,
+  fetch: () => Promise<Uint8Array | null>,
+  validate: (bytes: Uint8Array) => Promise<RevocationEvidence | null>
+): Promise<RevocationEvidence | null> {
+  if (!fresh) {
+    const cached = await getCachedRevocation(key, now.getTime())
+    const ev = cached ? await validate(cached) : null
+    if (ev) return ev
+  }
+  const bytes = await fetch()
+  if (!bytes) return null
+  const ev = await validate(bytes)
+  if (ev) await putCachedRevocation(key, bytes, ev, now.getTime())
+  return ev
 }
 
 const MAX_AGE_WITHOUT_NEXT_UPDATE_MS = 24 * 60 * 60 * 1000

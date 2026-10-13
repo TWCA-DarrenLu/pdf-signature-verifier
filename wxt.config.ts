@@ -32,7 +32,7 @@ export default defineConfig({
     name: 'PDFtrust - PDF 數位簽章驗證工具',
     description: 'Verify PDF digital signatures — integrity, certificate chain, trust, timestamp, revocation & LTV. Taiwan PKI (GRCA, TWCA, Chunghwa).',
     version: '1.0.4',
-    permissions: ['activeTab', 'storage', 'downloads', 'alarms'],
+    permissions: ['activeTab', 'storage', 'downloads', 'alarms', 'contextMenus'],
     host_permissions: ['<all_urls>'],
     icons: {
       16: 'icon-16.png',

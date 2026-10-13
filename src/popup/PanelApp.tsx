@@ -3,6 +3,7 @@ import type { VerificationResult } from '@/types'
 import { StatusBadge, SignatureList, ExportButton } from './components'
 import { DocumentIcon } from './components/icons'
 import { t, setLocale, detectBrowserLocale, resolveSummary } from '@/i18n'
+import { restoreDates } from './restore-dates'
 
 export function PanelApp() {
   const [result, setResult] = useState<VerificationResult | null>(null)
@@ -11,6 +12,8 @@ export function PanelApp() {
   const [recheckError, setRecheckError] = useState<string | null>(null)
   /** Inline mode: the page says whether the result can be fetched again (not for local files). */
   const [inlineCanRecheck, setInlineCanRecheck] = useState(false)
+  /** Popup-window mode: why there is no result (right-click verify that failed). */
+  const [windowError, setWindowError] = useState<string | null>(null)
   /** Popup-window mode: the remote PDF behind the result, used for re-checking. */
   const sourceRef = useRef<{ url: string; fileName: string } | null>(null)
 
@@ -40,8 +43,12 @@ export function PanelApp() {
 
     if (isPopupWindow) {
       // Opened as popup window — read result from local storage
-      chrome.storage.local.get(['pdf-panel-result', 'pdf-panel-source']).then((stored: Record<string, unknown>) => {
+      chrome.storage.local.get(['pdf-panel-result', 'pdf-panel-source', 'pdf-panel-error']).then((stored: Record<string, unknown>) => {
         const raw = stored['pdf-panel-result'] as VerificationResult | undefined
+        if (typeof stored['pdf-panel-error'] === 'string') {
+          setWindowError(stored['pdf-panel-error'])
+          chrome.storage.local.remove('pdf-panel-error')
+        }
         sourceRef.current = (stored['pdf-panel-source'] as { url: string; fileName: string } | null) ?? null
         if (raw) {
           setResult(restoreDates(raw))
@@ -107,6 +114,7 @@ export function PanelApp() {
         action: 'verify-pdf-url',
         url: source.url,
         fileName: source.fileName,
+        fresh: true,
       })) as { result?: VerificationResult; error?: string } | undefined
       if (response?.result) {
         setResult(restoreDates(response.result))
@@ -148,6 +156,7 @@ export function PanelApp() {
             <DocumentIcon className="w-10 h-10 text-gray-400" />
           </div>
           <div>{t('verification.noResult')}</div>
+          {windowError && <div className="mt-2 text-sm text-red-600">{windowError}</div>}
         </div>
       </div>
     )
@@ -236,29 +245,4 @@ export function PanelApp() {
       </footer>
     </div>
   )
-}
-
-/**
- * Restore Date objects from serialized JSON (chrome.storage serializes Dates as strings)
- */
-function restoreDates(result: VerificationResult): VerificationResult {
-  return {
-    ...result,
-    signatures: result.signatures.map((sig) => ({
-      ...sig,
-      signedAt: sig.signedAt ? new Date(sig.signedAt) : null,
-      validationTime: sig.validationTime ? new Date(sig.validationTime) : undefined,
-      certificateChain: sig.certificateChain.map((cert) => ({
-        ...cert,
-        notBefore: new Date(cert.notBefore),
-        notAfter: new Date(cert.notAfter),
-      })),
-      timestampInfo: sig.timestampInfo
-        ? {
-            ...sig.timestampInfo,
-            time: new Date(sig.timestampInfo.time),
-          }
-        : undefined,
-    })),
-  }
 }

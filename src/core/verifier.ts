@@ -35,6 +35,8 @@ import { ensurePkijsEngine } from './crypto/pkijs-engine'
 export interface VerificationOptions {
   /** Allow OCSP / CRL / AIA network access. Default true. */
   checkOnlineRevocation?: boolean
+  /** Ask OCSP / CRL servers again instead of using cached answers ("re-check"). */
+  refreshRevocation?: boolean
   /** Verify embedded RFC 3161 timestamps. Default true. */
   validateTimestamp?: boolean
   /** Kept for API compatibility; a trusted root is always required. */
@@ -293,6 +295,7 @@ async function verifySingleSignature(
         tsaRevocation = await checkChainRevocation(ts.tsaChain, {
           embedded: revInfo,
           allowOnline: allowNetwork,
+          freshOnline: ctx.options.refreshRevocation,
           atTime: ts.info.time,
           atTimeTrusted: true,
         })
@@ -350,6 +353,7 @@ async function verifySingleSignature(
     const revCtx: RevocationContext = {
       embedded: revInfo,
       allowOnline: allowNetwork,
+      freshOnline: ctx.options.refreshRevocation,
       atTime: validationTime,
       atTimeTrusted: trustedTime !== null,
     }
@@ -832,6 +836,7 @@ async function verifyDocTimeStamp(
       const revCtx: RevocationContext = {
         embedded: ctx.dss,
         allowOnline: allowNetwork,
+        freshOnline: ctx.options.refreshRevocation,
         atTime: ts.info.time,
         atTimeTrusted: true,
       }

@@ -97,7 +97,11 @@
     "autoVerify": "Verify PDFs automatically when opened",
     "language": "Language",
     "langZhTW": "繁體中文",
-    "langEn": "English"
+    "langEn": "English",
+    "scopeAll": "All websites",
+    "scopeListed": "Only these sites",
+    "scopeOff": "Off",
+    "sitesPlaceholder": "One domain per line, e.g. twca.com.tw (subdomains included)"
   },
   "export": {
     "title": "Export Verification Report PDF",
@@ -130,7 +134,10 @@
     "noSignatures": "No digital signatures",
     "viewResult": "View result",
     "cannotFetchPdf": "Could not fetch the PDF (the link may be single-use or expired). Download it and drop it into the extension.",
-    "localFileHint": "Local files must be selected manually"
+    "localFileHint": "Local file: click \"Verify Signature\" to pick it, or drop it on this bar",
+    "dropHint": "Drop a downloaded PDF on this bar to verify it",
+    "dropHere": "Drop to verify this PDF",
+    "notPdf": "This is not a PDF file"
   },
   "core": {
     "integrity": {
@@ -379,5 +386,13 @@
   "trust": {
     "government": "Government",
     "private": "Private"
+  },
+  "contextMenu": {
+    "verifyLink": "Verify the digital signatures of this PDF"
+  },
+  "popup": {
+    "currentTabResult": "Result for the current tab",
+    "fileAccessHint": "To verify local PDFs directly, turn on \"Allow access to file URLs\" in the extension details",
+    "openExtensionSettings": "Open extension settings"
   }
 }
