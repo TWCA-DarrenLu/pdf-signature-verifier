@@ -77,11 +77,24 @@ export async function fetchBinary(url: string): Promise<Uint8Array | null> {
   return fetchBytesWithRetry(url)
 }
 
+const certificateCache = new Map<string, Uint8Array>()
+const MAX_CACHED_CERTIFICATES = 100
+
 /**
- * Fetch a certificate by URL.
+ * Fetch a certificate by URL (AIA caIssuers). Successful downloads are kept in
+ * memory: issuer certificates are static and paths may be built more than once.
  */
 export async function fetchCertificateBytes(url: string): Promise<Uint8Array | null> {
-  return fetchBytesWithRetry(url)
+  const cached = certificateCache.get(url)
+  if (cached) return cached
+  const bytes = await fetchBytesWithRetry(url)
+  if (bytes) {
+    if (certificateCache.size >= MAX_CACHED_CERTIFICATES) {
+      certificateCache.delete(certificateCache.keys().next().value as string)
+    }
+    certificateCache.set(url, bytes)
+  }
+  return bytes
 }
 
 /**

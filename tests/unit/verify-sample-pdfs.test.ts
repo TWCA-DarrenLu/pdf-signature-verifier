@@ -36,9 +36,9 @@ const SAMPLE_DIR = resolve(__dirname, '../../PDF_Sample')
 const hasSamples = existsSync(SAMPLE_DIR)
 const HSM_SAMPLES = ['hsm-signed-a.pdf', 'hsm-signed-b.pdf']
 
-async function verify(file: string, online = false): Promise<VerificationResult> {
+async function verify(file: string, online = false, trustInternational = false): Promise<VerificationResult> {
   const data = readFileSync(resolve(SAMPLE_DIR, file))
-  return verifyPdfSignatures(data, file, { checkOnlineRevocation: online })
+  return verifyPdfSignatures(data, file, { checkOnlineRevocation: online, trustInternational })
 }
 
 const SIGNED_SAMPLES = ['hsm-signed-a.pdf', 'hsm-signed-b.pdf', 'ixml-plus-signed.pdf', 'expired-hsm-and-foreign-ca.pdf',
@@ -126,6 +126,18 @@ describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
     expect(sig.status).toBe('unknown')
   })
 
+  it('Taiwan-only by default: an international CA is named, with the hint to turn it on', async () => {
+    const result = await verify('expired-hsm-and-foreign-ca.pdf')
+    const docusign = result.signatures.find((s) => /DocuSign/i.test(s.signerName))!
+    expect(docusign.checks.trustRoot.i18nKey).toBe('core.trust.internationalNotEnabled')
+    expect(docusign.checks.trustRoot.details).toContain('DigiCert')
+    expect(docusign.rootCategory).toBeUndefined()
+
+    const twca = result.signatures.find((s) => /HSMT/.test(s.signerName))!
+    expect(twca.rootCategory).toBe('private')
+    expect(twca.rootVendor).toBe('TWCA')
+  })
+
   it('IXML signatures chain to TWCA Information XML Plus Root CA (official TWCA repository)', async () => {
     const result = await verify('ixml-plus-signed.pdf')
     expect(result.signatures).toHaveLength(2)
@@ -166,6 +178,24 @@ describe.skipIf(!hasSamples || !process.env.PDF_SAMPLE_ONLINE)('Sample PDF verif
     expect(twca.checks.revocation.details).toContain('OCSP')
     // the document stays "not fully verified" because of the DocuSign (DigiCert) signature
     expect(result.status).toBe('unknown')
+  })
+
+  it('with international CAs on, DocuSign (DigiCert) is trusted and marked international', async () => {
+    const result = await verify('expired-hsm-and-foreign-ca.pdf', true, true)
+    const docusign = result.signatures.find((s) => /DocuSign/i.test(s.signerName))!
+    expect(docusign.status).toBe('trusted')
+    expect(docusign.rootCategory).toBe('international')
+    expect(docusign.rootVendor).toBe('DigiCert')
+    expect(docusign.checks.trustRoot.i18nKey).toBe('core.trust.trustedInternational')
+    expect(result.status).toBe('trusted')
+  })
+
+  it('with international CAs on, a DigiCert timestamp is accepted', async () => {
+    const off = await verify('foreign-tsa.pdf', true)
+    expect(off.signatures[0].checks.timestamp?.detailsI18nKey).toBe('core.timestampVerifier.tsaInternationalNotEnabled')
+    const on = await verify('foreign-tsa.pdf', true, true)
+    expect(on.signatures[0].checks.timestamp?.passed).toBe(true)
+    expect(on.signatures[0].rootCategory).toBe('private') // the signer is still a Taiwan CA
   })
 
   it('HSM and IXML samples are trusted once the TSA and signer revocation can be checked online', async () => {

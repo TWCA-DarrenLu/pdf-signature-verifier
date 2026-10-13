@@ -5,6 +5,7 @@ import { useSettings } from './hooks/useSettings'
 import { DocumentIcon, XIcon } from './components/icons'
 import { t, setLocale, detectBrowserLocale, resolveSummary } from '@/i18n'
 import { parseSiteList, type AutoVerifyScope } from '@/settings/auto-verify'
+import { getInternationalVendors } from '@/trust-store/international-roots'
 import type { VerificationResult } from '@/types'
 import { restoreDates } from './restore-dates'
 
@@ -176,6 +177,7 @@ export function App() {
     await verify(file, {
       checkOnlineRevocation: true,
       refreshRevocation: fresh,
+      trustInternational: settings.trustInternational,
     })
   }
 
@@ -272,6 +274,23 @@ export function App() {
                 />
               )}
             </div>
+            {getInternationalVendors().length > 0 && (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={settings.trustInternational}
+                  onChange={(e) => updateSettings({ trustInternational: e.target.checked })}
+                  data-testid="trust-international"
+                  className="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700">
+                  {t('settings.trustInternational')}
+                  <span className="block text-xs text-gray-500">
+                    {t('settings.trustInternationalHint', { vendors: getInternationalVendors().join('、') })}
+                  </span>
+                </span>
+              </label>
+            )}
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-700">{t('settings.language')}</span>
               <select

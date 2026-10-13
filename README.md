@@ -14,6 +14,8 @@ A browser extension that verifies digital signatures in PDF documents, with buil
 
 - **Full PDF signature verification** -- parses PDF structure, extracts PKCS#7/CMS signatures, and validates every step of the chain
 - **Taiwan PKI support** -- pre-loaded trust anchors for TWCA (commercial), GCA (government), and MOICA (citizen digital certificates)
+- **Selected international CAs (opt-in)** -- Taiwan-only by default; the setting "Trust selected international CAs" adds the document-signing / timestamping roots of DigiCert, GlobalSign, Sectigo, IdenTrust and SSL.com (pinned by SHA-256 in `scripts/trust-store/manifest.json`, with source, evidence and CCADB cross-check)
+- **Regulatory label** -- chain first, then regulation: each trusted signature shows whether its CA is licensed under Taiwan's Electronic Signatures Act (Art. 12, MODA list) or is an international CA
 - **Automatic PDF detection** -- injects "Verify Signature" buttons next to PDF links and embedded PDFs on any webpage
 - **Built-in PDF viewer integration** -- notification bar below the toolbar when viewing a PDF directly in the browser; verification starts automatically (setting: all sites / listed sites only / off)
 - **Toolbar badge** -- the extension icon shows ✓ / ! / ✗ for the PDF in each tab; clicking it shows that result

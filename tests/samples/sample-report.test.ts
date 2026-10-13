@@ -6,7 +6,7 @@ import { verifyPdfSignatures } from '@/core/verifier'
 
 /**
  * Developer report: verifies every PDF in PDF_Sample/ (gitignored, local only)
- * and prints a one-line-per-check summary. Opt-in: PDF_SAMPLE_REPORT=1 npx vitest run tests/samples
+ * and prints a one-line-per-check summary. Opt-in: PDF_SAMPLE_REPORT=1 npx vitest run tests/samples (PDF_SAMPLE_INTL=1: international CAs on)
  */
 const SAMPLE_DIR = resolve(__dirname, '../../PDF_Sample')
 const files = existsSync(SAMPLE_DIR)
@@ -19,12 +19,15 @@ describe.skipIf(files.length === 0 || !process.env.PDF_SAMPLE_REPORT)('PDF_Sampl
   for (const file of files) {
     it(file, async () => {
       const offline = process.env.PDF_SAMPLE_OFFLINE === '1'
-      const result = await verifyPdfSignatures(readFileSync(resolve(SAMPLE_DIR, file)), file, { checkOnlineRevocation: !offline })
+      const result = await verifyPdfSignatures(readFileSync(resolve(SAMPLE_DIR, file)), file, {
+        checkOnlineRevocation: !offline,
+        trustInternational: process.env.PDF_SAMPLE_INTL === '1',
+      })
       const lines = [`### ${file} => ${result.status} (${result.signatures.length} sig)`]
       for (const sig of result.signatures) {
         const c = sig.checks
         lines.push(
-          `  #${sig.index} ${sig.signerName} [${sig.status}] ltv=${sig.ltvLevel ?? '-'}`,
+          `  #${sig.index} ${sig.signerName} [${sig.status}] ltv=${sig.ltvLevel ?? '-'} root=${sig.rootCategory ?? '-'}/${sig.rootVendor ?? '-'}`,
           `    integrity=${mark(c.integrity.passed)} ${c.integrity.message} | ${c.integrity.details ?? ''}`,
           `    chain=${mark(c.certificateChain.passed)} ${c.certificateChain.message} | ${c.certificateChain.details ?? ''}`,
           `    trust=${mark(c.trustRoot.passed)} ${c.trustRoot.message} | ${c.trustRoot.details ?? ''}`,

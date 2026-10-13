@@ -29,7 +29,7 @@ import { checkCertificateRevocation, type CertRevocationOutcome, type Revocation
 import { verifyTimestampForData, type TimestampFailure } from './timestamp/tst-verifier'
 import { checkLtvCompleteness } from './ltv/ltv-checker'
 import { createChangeAnalyzer, type ChangeAnalyzer, type ChangePolicy } from './pdf/incremental-update'
-import { initializeTrustStore, isTrustStoreEmpty, getAnchorCategory } from '@/trust-store/trust-manager'
+import { initializeTrustStore, isTrustStoreEmpty, getAnchorCategory, getAnchorVendor } from '@/trust-store/trust-manager'
 import { ensurePkijsEngine } from './crypto/pkijs-engine'
 
 export interface VerificationOptions {
@@ -37,6 +37,8 @@ export interface VerificationOptions {
   checkOnlineRevocation?: boolean
   /** Ask OCSP / CRL servers again instead of using cached answers ("re-check"). */
   refreshRevocation?: boolean
+  /** Also trust the selected international CAs and TSAs. Default false: Taiwan only. */
+  trustInternational?: boolean
   /** Verify embedded RFC 3161 timestamps. Default true. */
   validateTimestamp?: boolean
   /** Kept for API compatibility; a trusted root is always required. */
@@ -259,12 +261,30 @@ async function verifySingleSignature(
     const allowNetwork = ctx.options.checkOnlineRevocation !== false
 
     // 4–5. Certification path + trust anchor
-    const chain = await buildCertificateChain(signerCert, pkcs7.certificates, {
+    const trustInternational = ctx.options.trustInternational === true
+    let chain = await buildCertificateChain(signerCert, pkcs7.certificates, {
       fetchMissing: allowNetwork,
       additionalCertBytes: revInfo?.certs ?? [],
+      trustInternational,
     })
+    // International roots also anchor TLS / client hierarchies: their signers
+    // must carry a document-signing purpose. Otherwise the root is not trusted.
+    const purposeVendor =
+      chain.isTrusted && chain.root && getAnchorCategory(chain.root) === 'international' && !hasDocumentSigningEku(signerCert)
+        ? getAnchorVendor(chain.root) ?? getCommonName(chain.root)
+        : null
+    if (purposeVendor) chain = { ...chain, isTrusted: false }
     certificateChain = toCertificateInfo(chain)
-    const chainChecks = describeChain(chain)
+    const chainChecks = purposeVendor
+      ? describeInternationalPurpose(chain, purposeVendor)
+      : describeChain(chain, hasDocumentSigningEku(signerCert)
+        ? await internationalVendorFor(chain, () =>
+          buildCertificateChain(signerCert, pkcs7.certificates, {
+            fetchMissing: allowNetwork,
+            additionalCertBytes: revInfo?.certs ?? [],
+            trustInternational: true,
+          }), trustInternational)
+        : null)
     checks.certificateChain = chainChecks.certificateChain
     checks.trustRoot = chainChecks.trustRoot
 
@@ -289,6 +309,7 @@ async function verifySingleSignature(
       const ts = await verifyTimestampForData(pkcs7.embeddedTimestamp.raw, signerInfo.signatureValue, {
         extraCertBytes: revInfo?.certs ?? [],
         fetchMissing: allowNetwork,
+        trustInternational,
       })
       // The TSA path must be proven unrevoked at genTime before its time is used.
       if (ts.valid && ts.info && ts.tsaChain) {
@@ -330,9 +351,15 @@ async function verifySingleSignature(
         })
       } else {
         timestampFailure = ts.failure ?? 'parse'
-        checks.timestamp = createFailedCheck(t('core.timestamp.verificationFailed'), ts.check.message, {
-          key: 'core.timestamp.verificationFailed',
-        })
+        // an international TSA while that option is off: say so, with the hint
+        const intlHint = ts.check.detailsI18nKey === 'core.timestampVerifier.tsaInternationalNotEnabled'
+        checks.timestamp = createFailedCheck(
+          t('core.timestamp.verificationFailed'),
+          intlHint ? ts.check.details : ts.check.message,
+          intlHint
+            ? { key: 'core.timestamp.verificationFailed', detailsKey: ts.check.detailsI18nKey, detailsParams: ts.check.detailsI18nParams }
+            : { key: 'core.timestamp.verificationFailed' }
+        )
       }
     } else if (!pkcs7.embeddedTimestamp) {
       checks.timestamp = createFailedCheck(t('core.timestamp.noTimestamp'), t('core.timestamp.noRfc3161'), {
@@ -400,6 +427,7 @@ async function verifySingleSignature(
     const rootCategory = chain.isTrusted && chain.root ? getAnchorCategory(chain.root) ?? undefined : undefined
     return createSignatureResult(index, signerName, signedAt, status, applyLevels(checks, timestampFailure), certificateChain, timestampInfo, sigField.reason, {
       rootCategory,
+      rootVendor: rootCategory && chain.root ? getAnchorVendor(chain.root) ?? undefined : undefined,
       validationTime,
       validationTimeSource: trustedTime ? 'timestamp' : 'current',
       type: sigField.docMdp ? 'certification' : 'approval',
@@ -505,6 +533,43 @@ async function verifyIntegrity(
 const NON_SIGNING_EKUS = new Set(['serverAuth', 'timeStamping', 'ocspSigning', 'codeSigning'])
 
 /**
+ * Purposes accepted for signers under international roots: Adobe Authentic
+ * Documents Trust, document signing (RFC 9336 / Microsoft), S/MIME email
+ * protection, or any purpose. Names as produced by cert-utils.
+ */
+const DOCUMENT_SIGNING_EKUS = new Set([
+  '1.2.840.113583.1.1.5', // Adobe Authentic Documents Trust (AATL)
+  '1.3.6.1.5.5.7.3.36', // id-kp-documentSigning (RFC 9336)
+  'documentSigning', // Microsoft Document Signing
+  'emailProtection',
+  '2.5.29.37.0', // anyExtendedKeyUsage
+])
+
+export function hasDocumentSigningEku(cert: ParsedCertificate): boolean {
+  return cert.extKeyUsage.some((eku) => DOCUMENT_SIGNING_EKUS.has(eku))
+}
+
+/** Trusted international root, but the signer certificate has no document-signing purpose. */
+function describeInternationalPurpose(
+  chain: CertificateChain,
+  vendor: string
+): { certificateChain: CheckResult; trustRoot: CheckResult } {
+  const count = chain.certificates.length
+  return {
+    certificateChain: createPassedCheck(
+      t('core.chain.chainCompleteAndVerified'),
+      t('core.chain.chainCompleteWithCount', { count }),
+      { key: 'core.chain.chainCompleteAndVerified', detailsKey: 'core.chain.chainCompleteWithCount', detailsParams: { count } }
+    ),
+    trustRoot: createFailedCheck(t('core.trust.internationalPurpose'), t('core.trust.internationalPurposeDetails', { vendor }), {
+      key: 'core.trust.internationalPurpose',
+      detailsKey: 'core.trust.internationalPurposeDetails',
+      detailsParams: { vendor },
+    }),
+  }
+}
+
+/**
  * The signer certificate must be an end-entity certificate meant for
  * signatures: not a CA, keyUsage (if present) allows digitalSignature or
  * nonRepudiation, and the EKU (if present) is not limited to purposes such as
@@ -521,7 +586,26 @@ export function signingUsageProblem(cert: ParsedCertificate): string | null {
   return null
 }
 
-function describeChain(chain: CertificateChain): { certificateChain: CheckResult; trustRoot: CheckResult } {
+/**
+ * When the path is not trusted under Taiwan-only trust, would one of the
+ * bundled international roots anchor it? Returns that CA's vendor (for the
+ * "turn on international CAs" hint), else null. Only runs on failure.
+ */
+async function internationalVendorFor(
+  chain: CertificateChain,
+  rebuildWithInternational: () => Promise<CertificateChain>,
+  trustInternational: boolean
+): Promise<string | null> {
+  if (chain.isTrusted || chain.selfSignedLeaf || trustInternational) return null
+  const alternative = await rebuildWithInternational()
+  if (!alternative.isTrusted || !alternative.root) return null
+  return getAnchorCategory(alternative.root) === 'international' ? getAnchorVendor(alternative.root) : null
+}
+
+function describeChain(
+  chain: CertificateChain,
+  internationalVendor: string | null = null
+): { certificateChain: CheckResult; trustRoot: CheckResult } {
   const count = chain.certificates.length
   if (chain.selfSignedLeaf) {
     return {
@@ -536,17 +620,40 @@ function describeChain(chain: CertificateChain): { certificateChain: CheckResult
   }
   if (chain.isTrusted && chain.root) {
     const rootName = getCommonName(chain.root)
+    const international = getAnchorCategory(chain.root) === 'international'
+    const trustedKey = international ? 'core.trust.trustedInternational' : 'core.trust.trusted'
+    const vendor = getAnchorVendor(chain.root) ?? rootName
     return {
       certificateChain: createPassedCheck(
         t('core.chain.chainCompleteAndVerified'),
         t('core.chain.chainCompleteWithCount', { count }),
         { key: 'core.chain.chainCompleteAndVerified', detailsKey: 'core.chain.chainCompleteWithCount', detailsParams: { count } }
       ),
-      trustRoot: createPassedCheck(t('core.trust.trusted'), t('core.chain.rootCa', { name: rootName }), {
-        key: 'core.trust.trusted',
+      trustRoot: createPassedCheck(t(trustedKey, { vendor }), t('core.chain.rootCa', { name: rootName }), {
+        key: trustedKey,
+        params: { vendor },
         detailsKey: 'core.chain.rootCa',
         detailsParams: { name: rootName },
       }),
+    }
+  }
+  if (internationalVendor && chain.root) {
+    const rootName = getCommonName(chain.root)
+    return {
+      certificateChain: createFailedCheck(
+        t('core.chain.chainVerifiedUntrustedRoot'),
+        t('core.chain.chainCompleteWithCount', { count }),
+        { key: 'core.chain.chainVerifiedUntrustedRoot', detailsKey: 'core.chain.chainCompleteWithCount', detailsParams: { count } }
+      ),
+      trustRoot: createFailedCheck(
+        t('core.trust.internationalNotEnabled'),
+        t('core.trust.internationalNotEnabledDetails', { name: rootName, vendor: internationalVendor }),
+        {
+          key: 'core.trust.internationalNotEnabled',
+          detailsKey: 'core.trust.internationalNotEnabledDetails',
+          detailsParams: { name: rootName, vendor: internationalVendor },
+        }
+      ),
     }
   }
   if (chain.isComplete && chain.root) {
@@ -783,6 +890,7 @@ async function verifyDocTimeStamp(
     const ts = await verifyTimestampForData(sigField.contents, signedBytes, {
       extraCertBytes: ctx.dss?.certs ?? [],
       fetchMissing: allowNetwork,
+      trustInternational: ctx.options.trustInternational === true,
     })
     const tsaName = ts.info?.issuer || 'DocTimeStamp'
     const signerName = `DocTimeStamp (${tsaName})`
@@ -873,6 +981,7 @@ async function verifyDocTimeStamp(
       result: createSignatureResult(index, signerName, ts.info.time, status, applyLevels(checks, ts.valid ? null : ts.failure ?? 'parse'), certificateChain, ts.info, undefined, {
         type: 'timestamp',
         rootCategory: tsaChain?.isTrusted && tsaChain.root ? getAnchorCategory(tsaChain.root) ?? undefined : undefined,
+        rootVendor: tsaChain?.isTrusted && tsaChain.root ? getAnchorVendor(tsaChain.root) ?? undefined : undefined,
         validationTime: ts.info.time,
         validationTimeSource: 'timestamp',
       }),
@@ -1017,7 +1126,7 @@ function createSignatureResult(
   extras?: Partial<
     Pick<
       SignatureResult,
-      'type' | 'docMdp' | 'ltvLevel' | 'subsequentChanges' | 'rootCategory' | 'validationTime' | 'validationTimeSource'
+      'type' | 'docMdp' | 'ltvLevel' | 'subsequentChanges' | 'rootCategory' | 'rootVendor' | 'validationTime' | 'validationTimeSource'
     >
   >
 ): SignatureResult {

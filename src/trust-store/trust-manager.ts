@@ -10,13 +10,17 @@ import {
   TAIWAN_TSA_ROOT_CERTIFICATES,
   hasAnyEmbeddedTsaPem,
 } from './taiwan-tsa-roots'
+import { INTERNATIONAL_ROOT_CERTIFICATES } from './international-roots'
 
 let signingTrustCache: ParsedCertificate[] | null = null
 let tsaTrustCache: ParsedCertificate[] | null = null
+/** International anchors: trusted only when the caller opts in. */
+let intlSigningCache: ParsedCertificate[] | null = null
+let intlTsaCache: ParsedCertificate[] | null = null
 let intermediateCache: ParsedCertificate[] | null = null
 let initWarnings: string[] = []
-/** Anchor fingerprint → category (government / private). */
-const anchorCategories = new Map<string, TrustAnchorEntry['category']>()
+/** Root fingerprint → category (government / private / international) and vendor. */
+const anchorInfo = new Map<string, { category: TrustAnchorEntry['category']; vendor?: string }>()
 
 /**
  * Convert a fingerprint string (with or without colons) to a normalized
@@ -28,13 +32,15 @@ function normalizeFingerprint(fp: string): string {
 
 async function loadEntries(
   entries: TrustAnchorEntry[],
-  storeLabel: string
+  storeLabel: string,
+  optional = false
 ): Promise<{ anchors: ParsedCertificate[]; warnings: string[] }> {
   const anchors: ParsedCertificate[] = []
   const warnings: string[] = []
 
   const populated = entries.filter((e) => e.pem.trim().length > 0)
   if (populated.length === 0) {
+    if (optional) return { anchors, warnings }
     warnings.push(
       `[${storeLabel}] Trust store is EMPTY — no certificates loaded. ` +
         `Regenerate src/trust-store/generated-anchors.ts (scripts/trust-store/build-trust-store.mjs).`
@@ -64,7 +70,7 @@ async function loadEntries(
       }
 
       anchors.push(parsed)
-      anchorCategories.set(normalizeFingerprint(parsed.fingerprint), entry.category)
+      anchorInfo.set(normalizeFingerprint(parsed.fingerprint), { category: entry.category, vendor: entry.vendor })
     } catch (error) {
       warnings.push(
         `[${storeLabel}] Failed to parse "${entry.name}": ${
@@ -82,7 +88,7 @@ async function loadEntries(
  * Idempotent — second call returns the cached anchors.
  */
 export async function initializeTrustStore(): Promise<ParsedCertificate[]> {
-  if (signingTrustCache && tsaTrustCache && intermediateCache) {
+  if (signingTrustCache && tsaTrustCache && intlSigningCache && intlTsaCache && intermediateCache) {
     return signingTrustCache
   }
 
@@ -95,6 +101,16 @@ export async function initializeTrustStore(): Promise<ParsedCertificate[]> {
   const tsa = await loadEntries(TAIWAN_TSA_ROOT_CERTIFICATES, 'tsa')
   tsaTrustCache = tsa.anchors
   initWarnings.push(...tsa.warnings)
+
+  const withUsage = (usage: 'signing' | 'timestamping') =>
+    INTERNATIONAL_ROOT_CERTIFICATES.filter((entry) => entry.usage?.includes(usage))
+  const intlSigning = await loadEntries(withUsage('signing'), 'intl-signing', true)
+  intlSigningCache = intlSigning.anchors
+  initWarnings.push(...intlSigning.warnings)
+
+  const intlTsa = await loadEntries(withUsage('timestamping'), 'intl-tsa', true)
+  intlTsaCache = intlTsa.anchors
+  initWarnings.push(...intlTsa.warnings)
 
   const intermediates = await loadEntries(TAIWAN_INTERMEDIATE_CERTIFICATES, 'intermediate')
   intermediateCache = intermediates.anchors
@@ -123,17 +139,28 @@ export function isTsaTrustStoreEmpty(): boolean {
 }
 
 /**
- * Get signing CA trust anchors (must call initializeTrustStore first).
+ * Get signing CA trust anchors (must call initializeTrustStore first):
+ * Taiwan roots, plus the selected international roots when opted in.
  */
-export function getTrustAnchors(): ParsedCertificate[] {
-  return signingTrustCache ?? []
+export function getTrustAnchors(includeInternational = false): ParsedCertificate[] {
+  return [...(signingTrustCache ?? []), ...(includeInternational ? intlSigningCache ?? [] : [])]
 }
 
 /**
- * Get TSA trust anchors (must call initializeTrustStore first).
+ * Get TSA trust anchors (must call initializeTrustStore first):
+ * Taiwan roots, plus the selected international TSA roots when opted in.
  */
-export function getTsaTrustAnchors(): ParsedCertificate[] {
-  return tsaTrustCache ?? []
+export function getTsaTrustAnchors(includeInternational = false): ParsedCertificate[] {
+  return [...(tsaTrustCache ?? []), ...(includeInternational ? intlTsaCache ?? [] : [])]
+}
+
+/**
+ * Every bundled root, trusted or not under the current option. Path-building
+ * candidates only: a chain is trusted solely by the anchor set in use.
+ */
+export function getKnownRoots(): ParsedCertificate[] {
+  const all = [...(signingTrustCache ?? []), ...(tsaTrustCache ?? []), ...(intlSigningCache ?? []), ...(intlTsaCache ?? [])]
+  return [...new Map(all.map((c) => [normalizeFingerprint(c.fingerprint), c] as const)).values()]
 }
 
 /**
@@ -177,9 +204,14 @@ export function findTrustAnchor(cert: ParsedCertificate): ParsedCertificate | nu
   return findByFingerprint(cert, getTrustAnchors())
 }
 
-/** Category of a trust anchor (by fingerprint), or null if it is not one. */
+/** Category of a bundled root (by fingerprint), or null if it is not one. */
 export function getAnchorCategory(cert: ParsedCertificate): TrustAnchorEntry['category'] | null {
-  return anchorCategories.get(normalizeFingerprint(cert.fingerprint)) ?? null
+  return anchorInfo.get(normalizeFingerprint(cert.fingerprint))?.category ?? null
+}
+
+/** Vendor of a bundled international root (by fingerprint), or null. */
+export function getAnchorVendor(cert: ParsedCertificate): string | null {
+  return anchorInfo.get(normalizeFingerprint(cert.fingerprint))?.vendor ?? null
 }
 
 export function getTrustAnchorInfo(): TrustAnchor[] {
@@ -202,12 +234,22 @@ function getCommonName(dn: string): string {
 
 /**
  * Add a custom trust anchor (tests only; the shipped extension never calls it).
+ * `international` puts it among the opt-in international anchors.
  */
-export async function addCustomTrustAnchor(pem: string): Promise<void> {
+export async function addCustomTrustAnchor(
+  pem: string,
+  options: { international?: boolean; vendor?: string; timestamping?: boolean } = {}
+): Promise<void> {
   if (!signingTrustCache) {
     await initializeTrustStore()
   }
   const parsed = await parseCertificateFromBytes(pemToDer(pem))
+  if (options.international) {
+    anchorInfo.set(normalizeFingerprint(parsed.fingerprint), { category: 'international', vendor: options.vendor })
+    if (options.timestamping) intlTsaCache = [...(intlTsaCache ?? []), parsed]
+    else intlSigningCache = [...(intlSigningCache ?? []), parsed]
+    return
+  }
   signingTrustCache = [...signingTrustCache!, parsed]
 }
 
@@ -222,6 +264,8 @@ export async function addCustomTsaTrustAnchor(pem: string): Promise<void> {
 export function clearTrustAnchors(): void {
   signingTrustCache = null
   tsaTrustCache = null
+  intlSigningCache = null
+  intlTsaCache = null
   intermediateCache = null
   initWarnings = []
 }

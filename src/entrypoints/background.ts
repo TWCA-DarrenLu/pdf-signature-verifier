@@ -162,7 +162,10 @@ async function handlePdfUrlVerification(
       return { error: t('content.notPdf') }
     }
     const { verifyPdfSignatures } = await import('@/core/verifier')
-    const result = await verifyPdfSignatures(bytes, fileName, { refreshRevocation: fresh })
+    const result = await verifyPdfSignatures(bytes, fileName, {
+      refreshRevocation: fresh,
+      trustInternational: await trustInternationalSetting(),
+    })
     return { result }
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Verification failed' }
@@ -223,7 +226,10 @@ async function handlePdfVerification(
       return { error: t('content.notPdf') }
     }
     const { verifyPdfSignatures } = await import('@/core/verifier')
-    const result = await verifyPdfSignatures(data, fileName, options)
+    const result = await verifyPdfSignatures(data, fileName, {
+      ...options,
+      trustInternational: await trustInternationalSetting(),
+    })
     return { result }
   } catch (error) {
     return { error: error instanceof Error ? error.message : 'Verification failed' }
@@ -251,6 +257,16 @@ async function handleGetTrustStoreStatus(): Promise<{
     isTsaEmpty: isTsaTrustStoreEmpty(),
     warnings: getTrustStoreWarnings(),
     stats: getTrustStoreStats(),
+  }
+}
+
+/** User option: also trust the selected international CAs (default: Taiwan only). */
+async function trustInternationalSetting(): Promise<boolean> {
+  try {
+    const stored = await chrome.storage.local.get('pdf-verifier-settings')
+    return stored['pdf-verifier-settings']?.trustInternational === true
+  } catch {
+    return false
   }
 }
 

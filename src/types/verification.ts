@@ -62,8 +62,10 @@ export interface SignatureResult {
   certificateChain: CertificateInfo[]
   timestampInfo?: TimestampInfo
   rawSignature?: Uint8Array
-  /** Category of the trusted root (Taiwan government or private CA). */
-  rootCategory?: 'government' | 'private'
+  /** Category of the trusted root: Taiwan government / private CA, or an international CA. */
+  rootCategory?: 'government' | 'private' | 'international'
+  /** Organisation behind the trusted root (e.g. TWCA, GRCA, DigiCert). */
+  rootVendor?: string
   /** Time the certificates were validated at, and where it came from. */
   validationTime?: Date
   validationTimeSource?: 'timestamp' | 'current'

@@ -4,6 +4,7 @@ import {
   getTrustAnchors,
   getTsaTrustAnchors,
   getKnownIntermediates,
+  getKnownRoots,
 } from '@/trust-store/trust-manager'
 import { verifyCertSignature } from '../crypto/pki-verify'
 
@@ -16,6 +17,8 @@ export interface ChainBuildOptions {
   additionalCertBytes?: Uint8Array[]
   /** Which trust store terminates the path. Default: signing. */
   anchorStore?: AnchorStore
+  /** Also trust the selected international roots (user option). Default false. */
+  trustInternational?: boolean
 }
 
 /** Max certificates in a path, leaf and anchor included. */
@@ -42,7 +45,7 @@ export async function buildCertificateChain(
   intermediateCerts: ParsedCertificate[],
   options: ChainBuildOptions = {}
 ): Promise<CertificateChain> {
-  const { fetchMissing = false, additionalCertBytes = [], anchorStore = 'signing' } = options
+  const { fetchMissing = false, additionalCertBytes = [], anchorStore = 'signing', trustInternational = false } = options
 
   if (isSelfIssued(endEntityCert) || (await verifyCertSignature(endEntityCert, endEntityCert))) {
     return {
@@ -54,7 +57,7 @@ export async function buildCertificateChain(
     }
   }
 
-  const anchors = anchorStore === 'tsa' ? getTsaTrustAnchors() : getTrustAnchors()
+  const anchors = anchorStore === 'tsa' ? getTsaTrustAnchors(trustInternational) : getTrustAnchors(trustInternational)
   const anchorFps = new Set(anchors.map((a) => a.fingerprint.toLowerCase()))
   const isAnchor = (c: ParsedCertificate) => anchorFps.has(c.fingerprint.toLowerCase())
 
@@ -71,6 +74,8 @@ export async function buildCertificateChain(
     }
   }
   getKnownIntermediates().forEach(addToPool)
+  // every bundled root completes paths; only `anchors` make them trusted
+  getKnownRoots().forEach(addToPool)
   anchors.forEach(addToPool)
 
   const triedUrls = new Set<string>()

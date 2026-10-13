@@ -1,82 +1,279 @@
 {
-  "$comment": "Taiwan PKI trust material. sha256 = SHA-256 of the DER file in certs/, uppercase hex. Re-verify against the listed sources before changing anything here, then run: node scripts/trust-store/build-trust-store.mjs",
+  "$comment": "Trust material. sha256 = SHA-256 of the DER file in certs/, uppercase hex. Taiwan roots (category government/private) are always trusted; international roots (category international, with vendor and usage signing/timestamping) only when the user turns on the international option. Re-verify against the listed sources before changing anything here, then run: node scripts/trust-store/build-trust-store.mjs",
   "roots": [
     {
       "file": "grca-g1.cer",
       "name": "Government Root Certification Authority (GRCA G1)",
       "category": "government",
       "sha256": "7600295EEFE85B9E1FD624DB76062AAAAE59818A54D2774CD4C0B2C01131E1B3",
-      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA.cer"
+      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA.cer",
+      "vendor": "GRCA"
     },
     {
       "file": "grca-g2.cer",
       "name": "Government Root Certification Authority (GRCA G2)",
       "category": "government",
       "sha256": "70B922BFDA0E3F4A342E4EE22D579AE598D071CC5EC9C30F123680340388AEA5",
-      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA2.cer (also in Microsoft AuthRoot)"
+      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA2.cer (also in Microsoft AuthRoot)",
+      "vendor": "GRCA"
     },
     {
       "file": "grca-g3.cer",
       "name": "Government Root Certification Authority - G3 (GRCA G3)",
       "category": "government",
       "sha256": "57DF6F20E04C588E85F35BE8832F5D4E78958336AE3B18FB7C9BAE0DFEAD4044",
-      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA3.cer"
+      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA3.cer",
+      "vendor": "GRCA"
     },
     {
       "file": "twca-root-ca-sha1.cer",
       "name": "TWCA Root Certification Authority (SHA-1, RSA-2048)",
       "category": "private",
       "sha256": "BFD88FE1101C41AE3E801BF8BE56350EE9BAD1A6B9BD515EDC5C6D5B8711AC44",
-      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot; https://www.twca.com.tw/repository (TWCA Root Certificate zip)"
+      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot; https://www.twca.com.tw/repository (TWCA Root Certificate zip)",
+      "vendor": "TWCA"
     },
     {
       "file": "twca-root-ca-sha256.cer",
       "name": "TWCA Root Certification Authority (SHA-256, RSA-4096)",
       "category": "private",
       "sha256": "632D80BB096D209677D1734E5B35EA9D3019B9C44F8FCB2640C879039AC94EE8",
-      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)"
+      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)",
+      "vendor": "TWCA"
     },
     {
       "file": "twca-global-root-ca.cer",
       "name": "TWCA Global Root CA",
       "category": "private",
       "sha256": "59769007F7685D0FCD50872F9F95D5755A5B2B457D81F3692B610A98672F0E1B",
-      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot; https://www.twca.com.tw/repository (TWCA Root Certificate zip)"
+      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot; https://www.twca.com.tw/repository (TWCA Root Certificate zip)",
+      "vendor": "TWCA"
     },
     {
       "file": "twca-cyber-root-ca.cer",
       "name": "TWCA CYBER Root CA",
       "category": "private",
       "sha256": "3F63BB2814BE174EC8B6439CF08D6D56F0B7C405883A5648A334424D6B3EC558",
-      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25)"
+      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25)",
+      "vendor": "TWCA"
     },
     {
       "file": "twca-information-xml-plus-root-ca.cer",
       "name": "TWCA Information XML Plus Root CA",
       "category": "private",
       "sha256": "26C1AFE8F70A605E456B1E3CD1B45F47621F112E6FA15BE0A5389B426F4C5E17",
-      "source": "https://www.twca.com.tw/repository (數位化申請作業之憑證管理中心憑證 zip; SHA-1 81D2A3049F72E2474AE22284353E2BEE9C98A325 in the official certificate info PDF; root of the TWCA IXML+ CPS v2.0)"
+      "source": "https://www.twca.com.tw/repository (數位化申請作業之憑證管理中心憑證 zip; SHA-1 81D2A3049F72E2474AE22284353E2BEE9C98A325 in the official certificate info PDF; root of the TWCA IXML+ CPS v2.0)",
+      "vendor": "TWCA"
     },
     {
       "file": "cht-epki-root-ca.cer",
       "name": "Chunghwa Telecom ePKI Root Certification Authority",
       "category": "private",
       "sha256": "C0A6F4DC63A24BFDCF54EF2A6A082A0A72DE35803E2FF5FF527AE5D87206DFD5",
-      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)"
+      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)",
+      "vendor": "Chunghwa Telecom"
     },
     {
       "file": "cht-epki-root-ca-g2.cer",
       "name": "Chunghwa Telecom ePKI Root Certification Authority - G2",
       "category": "private",
       "sha256": "1E51942B84FD467BF77D1C89DA241C04254DC8F3EF4C22451FE7A89978BDCD4F",
-      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)"
+      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)",
+      "vendor": "Chunghwa Telecom"
     },
     {
       "file": "cht-hipki-root-ca-g1.cer",
       "name": "Chunghwa Telecom HiPKI Root CA - G1",
       "category": "private",
       "sha256": "F015CE3CC239BFEF064BE9F1D2C417E1A0264A0A94BE1F0C8D121864EB6949CC",
-      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot"
+      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot",
+      "vendor": "Chunghwa Telecom"
+    },
+    {
+      "file": "digicert-trusted-root-g4.cer",
+      "name": "DigiCert Trusted Root G4",
+      "category": "international",
+      "vendor": "DigiCert",
+      "usage": [
+        "signing",
+        "timestamping"
+      ],
+      "sha256": "552F7BDCF1A7AF9E6CE672017F4F12ABF77240C78E761AC203D1D9D20AC89988",
+      "source": "https://cacerts.digicert.com/DigiCertTrustedRootG4.crt (linked from https://www.digicert.com/kb/digicert-root-certificates.htm; page SHA-256 matches)",
+      "evidence": "Timestamping (official): https://www.digicert.com/kb/digicert-root-certificates.htm lists 'DigiCert Trusted G4 RSA4096 SHA256 TimeStamping CA' with 'Issuer: DigiCert Trusted Root G4'; https://knowledge.digicert.com/solution/authenticode-signature-verification-fails-with-new-timestamping-cross-root says DigiCert introduced the cross root 'DigiCert Trusted Root G4' for legacy timestamp clients. Signing: only CCADB-disclosed sub-CAs (DigiCert Trusted G4 AATL RSA4096 SHA384 2022 CA1; Trusted G4 Multi Doc Signing RSA4096 SHA384 2026 CA1); no DigiCert web page found.",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record); Apple/Chrome/Microsoft/Mozilla all Included"
+    },
+    {
+      "file": "globalsign-document-signing-root-r45.cer",
+      "name": "GlobalSign Document Signing Root R45",
+      "category": "international",
+      "vendor": "GlobalSign",
+      "usage": [
+        "signing"
+      ],
+      "sha256": "38BE6C7EEB4547D82B9287F243AF32A9DEEB5DC5C9A87A0056F938D91B456A5A",
+      "source": "https://secure.globalsign.com/cacert/docsignrootr45.crt",
+      "evidence": "https://support.globalsign.com/ca-certificates/root-certificates/globalsign-root-certificates - listed under section heading 'Document Signing Root Certificates'; page SHA-1 4f:79:df:63... matches the file",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record); CCADB children include document-signing/AATL CAs; Microsoft: Included"
+    },
+    {
+      "file": "globalsign-document-signing-root-e45.cer",
+      "name": "GlobalSign Document Signing Root E45",
+      "category": "international",
+      "vendor": "GlobalSign",
+      "usage": [
+        "signing"
+      ],
+      "sha256": "F86973BDD0514735E10C1190D0345BF89C77E1C4ADBD3F65963B803FD3C9E1FF",
+      "source": "https://secure.globalsign.com/cacert/docsignroote45.crt",
+      "evidence": "https://support.globalsign.com/ca-certificates/root-certificates/globalsign-root-certificates - listed under section heading 'Document Signing Root Certificates'; page SHA-1 ce:71:31:5d... matches the file",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record); CCADB children 'GlobalSign E45 AATL Root CA 2020' and 'GlobalSign E45 AATL Trusted CA 2026'"
+    },
+    {
+      "file": "globalsign-timestamping-root-r45.cer",
+      "name": "GlobalSign Timestamping Root R45",
+      "category": "international",
+      "vendor": "GlobalSign",
+      "usage": [
+        "timestamping"
+      ],
+      "sha256": "2BCBBFD66282C680491C8CD7735FDBBAB7A8079B127BEC60C535976834399AF7",
+      "source": "https://secure.globalsign.com/cacert/timestamprootr45.crt",
+      "evidence": "https://support.globalsign.com/ca-certificates/root-certificates/globalsign-root-certificates - listed under section heading 'Time Stamping Root Certificates'; page SHA-1 13:9b:1c:71... matches the file",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record); children 'GlobalSign Atlas R45 TimeStamping CA 2022' etc.; Microsoft: Included"
+    },
+    {
+      "file": "globalsign-timestamping-root-e46.cer",
+      "name": "GlobalSign Timestamping Root E46",
+      "category": "international",
+      "vendor": "GlobalSign",
+      "usage": [
+        "timestamping"
+      ],
+      "sha256": "4774674B94B78F5CCBEF89FDDEBDABBD894A71B55576B8CC5E6876BA3EAB4538",
+      "source": "https://secure.globalsign.com/cacert/timestamproote46.crt",
+      "evidence": "https://support.globalsign.com/ca-certificates/root-certificates/globalsign-root-certificates - listed under section heading 'Time Stamping Root Certificates'; page SHA-1 3a:cc:40:d9... matches the file",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record) (hash-level only; no child CA disclosed, not in any root program)"
+    },
+    {
+      "file": "sectigo-document-signing-root-r46.cer",
+      "name": "Sectigo Public Document Signing Root R46",
+      "category": "international",
+      "vendor": "Sectigo",
+      "usage": [
+        "signing"
+      ],
+      "sha256": "43A61038597C31F4E7D75DEEB831E38462D968308C68B5A078F719139735DA89",
+      "source": "http://crt.sectigo.com/SectigoPublicDocumentSigningRootR46.crt (HTTPS connection reset from this network; HTTP used, integrity covered by CCADB SHA-256 match)",
+      "evidence": "https://www.sectigo.com/uploads/legal/Document_Signing_certificate_profiles_v2.1.pdf - Root CAs section: 'the new ones are specific for this type of certificates' and lists this root; same doc EKU list includes 'adobe authentic document trust'. Also https://www.sectigo.com/uploads/legal/Document-Signing-Combined-CP-CPS-v1.1.1.pdf states Sectigo complies with the Adobe AATL Requirements",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record); child 'Sectigo Public Document Signing CA R36'; Microsoft: Included"
+    },
+    {
+      "file": "sectigo-document-signing-root-e46.cer",
+      "name": "Sectigo Public Document Signing Root E46",
+      "category": "international",
+      "vendor": "Sectigo",
+      "usage": [
+        "signing"
+      ],
+      "sha256": "01A1A03E1F3DD7ED3CCADAE4D668B4446065DDF3B2DCF05D1DAFFDB2591B3838",
+      "source": "http://crt.sectigo.com/SectigoPublicDocumentSigningRootE46.crt (HTTPS connection reset from this network; HTTP used, integrity covered by CCADB SHA-256 match)",
+      "evidence": "https://www.sectigo.com/uploads/legal/Document_Signing_certificate_profiles_v2.1.pdf - same Root CAs section lists E46 as a document-signing specific root",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record); child 'Sectigo Public Document Signing CA E36'; Microsoft: Included"
+    },
+    {
+      "file": "sectigo-time-stamping-root-r46.cer",
+      "name": "Sectigo Public Time Stamping Root R46",
+      "category": "international",
+      "vendor": "Sectigo",
+      "usage": [
+        "timestamping"
+      ],
+      "sha256": "4941B001B8A97E961B7817C9D9E960EC4B056BFC915A8C1AABF6EF6B3AC046A5",
+      "source": "http://crt.sectigo.com/SectigoPublicTimeStampingRootR46.crt (HTTPS connection reset from this network; HTTP used, integrity covered by CCADB SHA-256 match)",
+      "evidence": "https://www.sectigo.com/uploads/legal/Document-Signing-Combined-CP-CPS-v1.1.1.pdf - section 6.3.2 root table lists 'Sectigo Public Time Stamping Root R46'; section 6.8 'Sectigo offers a RFC3161 TSA'. Weak: the CP/CPS does not literally tie the root to the TSA beyond its name.",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record); children 'Sectigo Public Time Stamping CA R36' and 'R41'; Apple/Microsoft: Included"
+    },
+    {
+      "file": "sectigo-time-stamping-root-e46.cer",
+      "name": "Sectigo Public Time Stamping Root E46",
+      "category": "international",
+      "vendor": "Sectigo",
+      "usage": [
+        "timestamping"
+      ],
+      "sha256": "E44DDB7952261F15005CD60C1D0C38C18CBFD17C273A31F8ED4C8F53E2685F32",
+      "source": "http://crt.sectigo.com/SectigoPublicTimeStampingRootE46.crt (HTTPS connection reset from this network; HTTP used, integrity covered by CCADB SHA-256 match)",
+      "evidence": "https://www.sectigo.com/uploads/legal/Document-Signing-Combined-CP-CPS-v1.1.1.pdf - section 6.3.2 root table lists 'Sectigo Public Time Stamping Root E46'; section 6.8 RFC3161 TSA. Same weakness as R46.",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (row SHA-256 match, Root Certificate record); child 'Sectigo Public Time Stamping CA E36'; Apple/Microsoft: Included"
+    },
+    {
+      "file": "identrust-commercial-root-ca-1.cer",
+      "name": "IdenTrust Commercial Root CA 1",
+      "category": "international",
+      "vendor": "IdenTrust",
+      "usage": [
+        "signing",
+        "timestamping"
+      ],
+      "sha256": "5D56499BE4D2E08BCFCAD08A3E38723D50503BDE706948E42F55603019E528AE",
+      "source": "https://www.identrust.com/sites/default/files/resources/IdenTrustCommercialRootCA_0.p7b (from https://www.identrust.com/support/downloads)",
+      "evidence": "https://www.identrust.com/aatl-enabled-digital-certificates : \"IdenTrust offers the following AATL enabled certificates issued under the IdenTrust Commercial CA Public Root\" / \"IdenTrust CA is a member certified under the AATL program\". Timestamping: https://www.identrust.com/support/downloads lists \"TrustID Timestamping CA 5\" (issuer = this root, verified by openssl) under \"RSA Timestamping Subordinate CA's\"; https://www.identrust.com/aatl-enabled-digital-certificates : \"IdenTrust also offers a free of charge Timestamping Service\"",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (SHA-256 match, Root Certificate record) (crt.sh was down: HTTP 502)"
+    },
+    {
+      "file": "identrust-timestamp-rsa-root-ca-2.cer",
+      "name": "IdenTrust Commercial Root Timestamp RSA CA 2",
+      "category": "international",
+      "vendor": "IdenTrust",
+      "usage": [
+        "timestamping"
+      ],
+      "sha256": "D309931736C8F5AAF3C20ADA97FDAF11B5E2D7FD174DC97286ACD613A40AEA55",
+      "source": "https://www.identrust.com/sites/default/files/resources/identrusttimestamprsarootca2.p7b (from https://www.identrust.com/support/downloads)",
+      "evidence": "https://www.identrust.com/support/downloads : heading \"RSA Timestamping Subordinate CA's\" lists \"TrustID RSA Timestamp CA 2\" (issuer = this root, verified); root listed as \"IdenTrust Commercial Root Timestamp RSA CA 2\"",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (SHA-256 match, Root Certificate record) (crt.sh was down: HTTP 502)"
+    },
+    {
+      "file": "sslcom-docsigning-rsa-root-2022.cer",
+      "name": "SSL.com Document Signing RSA Root CA 2022",
+      "category": "international",
+      "vendor": "SSL.com",
+      "usage": [
+        "signing",
+        "timestamping"
+      ],
+      "sha256": "E807D49A859ABBC861C72CA907D443AD0FE87EAB9D99B913F2CB5B4AADABE641",
+      "source": "https://repo-certs.ssl.com/repo/certs/SSLcom-DocumentSigning-Root-2022-RSA.der (from https://www.ssl.com/repository/)",
+      "evidence": "https://legal.ssl.com/documents/SSLcom-CP-CPS.pdf (v1.34, 1.3.1.1): \"Document Signing Root hierarchy to be used for Document Signing and Time-stamping Certificates associated with Document Signing.\" AATL: https://www.ssl.com/products/document-trust/document-signing/ \"SSL.com is an AATL member\" (does not name specific root)",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (SHA-256 match, Root Certificate record) (crt.sh was down: HTTP 502)"
+    },
+    {
+      "file": "sslcom-docsigning-ecc-root-2022.cer",
+      "name": "SSL.com Document Signing ECC Root CA 2022",
+      "category": "international",
+      "vendor": "SSL.com",
+      "usage": [
+        "signing",
+        "timestamping"
+      ],
+      "sha256": "5ECE6AB27131FB58A887E94177D55BD9E51AAA2DED6C081B54A39BE3CB84E1F1",
+      "source": "https://repo-certs.ssl.com/repo/certs/SSLcom-DocumentSigning-Root-2022-ECC.der (from https://www.ssl.com/repository/)",
+      "evidence": "https://legal.ssl.com/documents/SSLcom-CP-CPS.pdf (v1.34, 1.3.1.1): \"Document Signing Root hierarchy to be used for Document Signing and Time-stamping Certificates associated with Document Signing.\" AATL: https://www.ssl.com/products/document-trust/document-signing/ \"SSL.com is an AATL member\" (does not name specific root)",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (SHA-256 match, Root Certificate record) (crt.sh was down: HTTP 502)"
+    },
+    {
+      "file": "sslcom-root-ca-rsa.cer",
+      "name": "SSL.com Root Certification Authority RSA",
+      "category": "international",
+      "vendor": "SSL.com",
+      "usage": [
+        "timestamping"
+      ],
+      "sha256": "85666A562EE0BE5CE925C1D8890A6F76A87EC16D4D7D5F29EA7419CF20123B69",
+      "source": "https://repo-certs.ssl.com/repo/certs/SSLcomRootCertificationAuthorityRSA.der (from https://www.ssl.com/repository/)",
+      "evidence": "https://www.ssl.com/repository/ section \"Issuing CA Certificates (incl. Timestamping)\": \"SSL.com Timestamping Issuing RSA CA R1\" and \"...CA 2\" list this root as Issuer. Chain listing only, no explicit usage sentence for this legacy multi-purpose root (medium); do NOT use for signing",
+      "crosscheck": "https://ccadb.my.salesforce-sites.com/ccadb/AllCertificateRecordsCSVFormatv4 (SHA-256 match, Root Certificate record) (crt.sh was down: HTTP 502)"
     }
   ],
   "intermediates": [

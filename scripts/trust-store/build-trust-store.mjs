@@ -32,6 +32,14 @@ for (const { entry, cert } of roots) {
   if (cert.subject !== cert.issuer || !cert.verify(cert.publicKey)) {
     fail(`${entry.file}: root is not a valid self-signed certificate`)
   }
+  if (!['government', 'private', 'international'].includes(entry.category)) fail(`${entry.file}: unknown category ${entry.category}`)
+  if (!entry.vendor) fail(`${entry.file}: vendor is required`)
+  if (entry.category === 'international') {
+    const usage = entry.usage ?? []
+    if (usage.length === 0 || usage.some((u) => !['signing', 'timestamping'].includes(u))) {
+      fail(`${entry.file}: international roots need usage signing and/or timestamping`)
+    }
+  }
 }
 
 const intermediates = manifest.intermediates.map(load)
@@ -49,7 +57,7 @@ function render({ entry, cert, der }) {
   const notes = `${cert.subject.replace(/\n/g, ', ')}; valid ${new Date(cert.validFrom).toISOString().slice(0, 10)} → ${new Date(cert.validTo).toISOString().slice(0, 10)}`
   return `  {
     name: ${JSON.stringify(entry.name)},
-    category: '${entry.category}',
+    category: '${entry.category}',${entry.vendor ? `\n    vendor: ${JSON.stringify(entry.vendor)},` : ''}${entry.usage ? `\n    usage: ${JSON.stringify(entry.usage)},` : ''}
     pem: \`${toPem(der)}\`,
     expectedFingerprint: '${fmtFp(entry.sha256)}',
     source: ${JSON.stringify(entry.source)},
@@ -64,7 +72,7 @@ const out = `/**
  */
 import type { TrustAnchorEntry } from './taiwan-roots'
 
-/** Self-signed Taiwan root CAs (government + private). */
+/** Self-signed root CAs: Taiwan (government + private) and opt-in international. */
 export const GENERATED_ROOTS: TrustAnchorEntry[] = [
 ${roots.map(render).join('\n')}
 ]
