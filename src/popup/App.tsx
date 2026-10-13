@@ -324,9 +324,9 @@ export function App() {
 
             {/* Status Summary */}
             <div className="p-4 rounded-lg bg-gray-50 border border-gray-200">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <StatusBadge status={shown.status} size="lg" />
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 whitespace-nowrap">
                   {canRecheck && (
                     <button
                       onClick={() => (result && lastFile ? handleFileSelect(lastFile, true) : handleRecheckTab())}
