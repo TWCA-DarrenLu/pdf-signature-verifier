@@ -91,6 +91,65 @@ describe('pkcs7-parser', () => {
     })
   })
 
+  describe('adbe-revocationInfoArchival', () => {
+    // RevocationInfoArchival ::= SEQUENCE { crl [0] ..., ocsp [1] EXPLICIT SEQUENCE OF OCSPResponse, ... }
+    const archivalAttribute = () =>
+      new pkijs.Attribute({
+        type: '1.2.840.113583.1.1.8',
+        values: [
+          new asn1js.Sequence({
+            value: [
+              new asn1js.Constructed({
+                idBlock: { tagClass: 3, tagNumber: 1 },
+                value: [new asn1js.Sequence({ value: [new asn1js.Sequence({ value: [new asn1js.Enumerated({ value: 0 })] })] })],
+              }),
+            ],
+          }),
+        ],
+      })
+
+    const encodeWith = (placement: 'signed' | 'unsigned') => {
+      const contentType = new pkijs.Attribute({
+        type: '1.2.840.113549.1.9.3',
+        values: [new asn1js.ObjectIdentifier({ value: '1.2.840.113549.1.7.1' })],
+      })
+      const signerInfo = new pkijs.SignerInfo({
+        version: 1,
+        sid: new pkijs.IssuerAndSerialNumber({
+          issuer: new pkijs.RelativeDistinguishedNames(),
+          serialNumber: new asn1js.Integer({ value: 1 }),
+        }),
+        digestAlgorithm: new pkijs.AlgorithmIdentifier({ algorithmId: '2.16.840.1.101.3.4.2.1' }),
+        signatureAlgorithm: new pkijs.AlgorithmIdentifier({ algorithmId: '1.2.840.113549.1.1.11' }),
+        signature: new asn1js.OctetString({ valueHex: new ArrayBuffer(32) }),
+        signedAttrs: new pkijs.SignedAndUnsignedAttributes({
+          type: 0,
+          attributes: placement === 'signed' ? [contentType, archivalAttribute()] : [contentType],
+        }),
+        ...(placement === 'unsigned'
+          ? { unsignedAttrs: new pkijs.SignedAndUnsignedAttributes({ type: 1, attributes: [archivalAttribute()] }) }
+          : {}),
+      })
+      const signedData = new pkijs.SignedData({
+        version: 1,
+        encapContentInfo: new pkijs.EncapsulatedContentInfo({ eContentType: '1.2.840.113549.1.7.1' }),
+        signerInfos: [signerInfo],
+      })
+      const contentInfo = new pkijs.ContentInfo({
+        contentType: '1.2.840.113549.1.7.2',
+        content: signedData.toSchema(true),
+      })
+      return new Uint8Array(contentInfo.toSchema().toBER())
+    }
+
+    // Acrobat and TWCA signing services put it in the SIGNED attributes (ISO 32000-1 12.8.3.3.2)
+    it.each(['signed', 'unsigned'] as const)('reads embedded OCSP responses from %s attributes', async (placement) => {
+      const { parsePkcs7 } = await import('@/core/crypto/pkcs7-parser')
+      const parsed = await parsePkcs7(encodeWith(placement))
+      expect(parsed.embeddedRevocationInfo?.ocspResponses).toHaveLength(1)
+    })
+  })
+
   describe('getSignedAttributesData', () => {
     it('should return null when signer has no signed attributes', async () => {
       const { getSignedAttributesData } = await import('@/core/crypto/pkcs7-parser')

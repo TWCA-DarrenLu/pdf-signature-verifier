@@ -21,7 +21,7 @@ const SAMPLE_DIR = resolve(ROOT, 'PDF_Sample')
 const CASES = [
   { file: 'hsm-signed-a.pdf', expected: 'trusted' },
   { file: 'self-signed.pdf', expected: 'failed' },
-  // expired one-day HSM certificate without embedded revocation data + co-signature under a foreign root
+  // TWCA signature trusted (embedded OCSP) + DocuSign co-signature under a foreign root -> document not fully verified
   { file: 'expired-hsm-and-foreign-ca.pdf', expected: 'unknown' },
 ]
 const FINAL_STATES = ['trusted', 'failed', 'unknown', 'error', 'none']

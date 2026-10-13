@@ -308,10 +308,13 @@ function extractRevocationInfo(signedData: pkijs.SignedData): EmbeddedRevocation
   const ocspResponses: Uint8Array[] = []
   const crls: Uint8Array[] = []
 
-  // Check for Adobe revocation info in signer info unsigned attributes
+  // Adobe revocation info (adbe-revocationInfoArchival). ISO 32000-1 §12.8.3.3.2
+  // places it in the SIGNED attributes (Acrobat, TWCA signing services);
+  // some producers put it in the unsigned attributes — accept both.
   for (const si of signedData.signerInfos) {
-    if (si.unsignedAttrs) {
-      for (const attr of si.unsignedAttrs.attributes) {
+    for (const attrs of [si.signedAttrs, si.unsignedAttrs]) {
+      if (!attrs) continue
+      for (const attr of attrs.attributes) {
         if (attr.type === OID.ADOBE_REVOCATION_INFO_ARCHIVAL) {
           for (const val of attr.values) {
             if (val instanceof asn1js.Sequence) {

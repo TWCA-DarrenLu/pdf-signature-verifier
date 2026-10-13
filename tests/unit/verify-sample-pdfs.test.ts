@@ -13,7 +13,9 @@ import { getCheckState, type VerificationResult } from '@/types'
  * Expected local samples (generic names):
  *   hsm-signed-a.pdf / hsm-signed-b.pdf — TWCA HSM signer + MyTWES signature, embedded CRLs, TWCA TSA
  *   ixml-plus-signed.pdf                — signer under TWCA Information XML Plus Root CA + MyTWES signature
- *   expired-hsm-and-foreign-ca.pdf      — expired one-day HSM certificate + co-signature under a foreign root
+ *   expired-hsm-and-foreign-ca.pdf      — expired one-day HSM certificate, OCSP embedded in the signed
+ *                                         adbe-revocationInfoArchival attribute + DocuSign co-signature
+ *                                         under a foreign root (its DSS only covers the DocuSign chain)
  *   foreign-tsa.pdf                     — Taiwan signer, timestamp from a non-Taiwan TSA
  *   self-signed.pdf                     — self-signed signer
  *   attached-signed-pdfs.pdf            — self-signed outer signature, signed PDFs as attachments
@@ -101,7 +103,7 @@ describe.skipIf(!hasSamples)('Sample PDF verification (offline)', () => {
     expect(result.status).toBe('failed')
   })
 
-  it('expired one-day HSM certificate without embedded revocation data stays unknown', async () => {
+  it('expired one-day HSM certificate: embedded OCSP cannot be anchored offline (TSA revocation unknown)', async () => {
     const result = await verify('expired-hsm-and-foreign-ca.pdf')
     expect(result.status).toBe('unknown')
     const twca = result.signatures.find((s) => /HSMT/.test(s.signerName))!
@@ -152,6 +154,18 @@ describe.skipIf(!hasSamples || !process.env.PDF_SAMPLE_ONLINE)('Sample PDF verif
 
   it('check states agree with each signature status (online)', async () => {
     await expectStatesMatchStatus(true)
+  })
+
+  it('expired one-day HSM certificate is trusted through the OCSP in its signed attributes', async () => {
+    const result = await verify('expired-hsm-and-foreign-ca.pdf', true)
+    const twca = result.signatures.find((s) => /HSMT/.test(s.signerName))!
+    expect(twca.status).toBe('trusted')
+    expect(twca.checks.revocation.passed).toBe(true)
+    // embedded evidence, not an online answer: the certificate expired in 2025-12
+    expect(twca.checks.revocation.i18nKey).toBe('core.revocation.notRevokedEmbedded')
+    expect(twca.checks.revocation.details).toContain('OCSP')
+    // the document stays "not fully verified" because of the DocuSign (DigiCert) signature
+    expect(result.status).toBe('unknown')
   })
 
   it('HSM and IXML samples are trusted once the TSA and signer revocation can be checked online', async () => {
