@@ -5,11 +5,12 @@
  */
 import type { TrustAnchorEntry } from './taiwan-roots'
 
-/** Self-signed Taiwan root CAs (government + private). */
+/** Self-signed root CAs: Taiwan (government + private) and opt-in international. */
 export const GENERATED_ROOTS: TrustAnchorEntry[] = [
   {
     name: "Government Root Certification Authority (GRCA G1)",
     category: 'government',
+    vendor: "GRCA",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFcjCCA1qgAwIBAgIQH51ZWtcvwgZEpYAIaeNe9jANBgkqhkiG9w0BAQUFADA/
 MQswCQYDVQQGEwJUVzEwMC4GA1UECgwnR292ZXJubWVudCBSb290IENlcnRpZmlj
@@ -49,6 +50,7 @@ pYYsfPQS
   {
     name: "Government Root Certification Authority (GRCA G2)",
     category: 'government',
+    vendor: "GRCA",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFSzCCAzOgAwIBAgIRALZLiAfiI+7IXBKtpg4GofIwDQYJKoZIhvcNAQELBQAw
 PzELMAkGA1UEBhMCVFcxMDAuBgNVBAoMJ0dvdmVybm1lbnQgUm9vdCBDZXJ0aWZp
@@ -87,6 +89,7 @@ iTTa9g3nkagQ6hed8vbs
   {
     name: "Government Root Certification Authority - G3 (GRCA G3)",
     category: 'government',
+    vendor: "GRCA",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFfTCCA2WgAwIBAgIRAM0d5xOprb9o/ikW2ENUFccwDQYJKoZIhvcNAQELBQAw
 WDELMAkGA1UEBhMCVFcxEjAQBgNVBAoMCeihjOaUv+mZojE1MDMGA1UEAwwsR292
@@ -126,6 +129,7 @@ raCtEIUcihRGg37vo20rSy0=
   {
     name: "TWCA Root Certification Authority (SHA-1, RSA-2048)",
     category: 'private',
+    vendor: "TWCA",
     pem: `-----BEGIN CERTIFICATE-----
 MIIDezCCAmOgAwIBAgIBATANBgkqhkiG9w0BAQUFADBfMQswCQYDVQQGEwJUVzES
 MBAGA1UECgwJVEFJV0FOLUNBMRAwDgYDVQQLDAdSb290IENBMSowKAYDVQQDDCFU
@@ -154,6 +158,7 @@ YiesZSLX0zzG5Y6yU8xJzrww/nsOM5D77dIUkR8Hrw==
   {
     name: "TWCA Root Certification Authority (SHA-256, RSA-4096)",
     category: 'private',
+    vendor: "TWCA",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFezCCA2OgAwIBAgIBATANBgkqhkiG9w0BAQsFADBfMQswCQYDVQQGEwJUVzES
 MBAGA1UECgwJVEFJV0FOLUNBMRAwDgYDVQQLDAdSb290IENBMSowKAYDVQQDDCFU
@@ -193,6 +198,7 @@ bcho4VTolYMYvvrNjx1m
   {
     name: "TWCA Global Root CA",
     category: 'private',
+    vendor: "TWCA",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFQTCCAymgAwIBAgICDL4wDQYJKoZIhvcNAQELBQAwUTELMAkGA1UEBhMCVFcx
 EjAQBgNVBAoTCVRBSVdBTi1DQTEQMA4GA1UECxMHUm9vdCBDQTEcMBoGA1UEAxMT
@@ -231,6 +237,7 @@ KwbQBM0=
   {
     name: "TWCA CYBER Root CA",
     category: 'private',
+    vendor: "TWCA",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFjTCCA3WgAwIBAgIQQAE0jMIAAAAAAAAAATzyxjANBgkqhkiG9w0BAQwFADBQ
 MQswCQYDVQQGEwJUVzESMBAGA1UEChMJVEFJV0FOLUNBMRAwDgYDVQQLEwdSb290
@@ -270,6 +277,7 @@ t5b5wR9iWqJDB0BeJsas7a5wFsWqynKKTbDPAYsDP27X
   {
     name: "TWCA Information XML Plus Root CA",
     category: 'private',
+    vendor: "TWCA",
     pem: `-----BEGIN CERTIFICATE-----
 LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tDQpNSUlHU2pDQ0JES2dBd0lCQWdJ
 QkFUQU5CZ2txaGtpRzl3MEJBUXNGQURCYk1Rc3dDUVlEVlFRR0V3SlVWekVPDQpN
@@ -327,6 +335,7 @@ RCBDRVJUSUZJQ0FURS0tLS0tDQo=
   {
     name: "Chunghwa Telecom ePKI Root Certification Authority",
     category: 'private',
+    vendor: "Chunghwa Telecom",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFsDCCA5igAwIBAgIQFci9ZUdcr7iXAF7kBtK8nTANBgkqhkiG9w0BAQUFADBe
 MQswCQYDVQQGEwJUVzEjMCEGA1UECgwaQ2h1bmdod2EgVGVsZWNvbSBDby4sIEx0
@@ -367,6 +376,7 @@ hNQ+IIX3Sj0rnP0qCglN6oH4EZw=
   {
     name: "Chunghwa Telecom ePKI Root Certification Authority - G2",
     category: 'private',
+    vendor: "Chunghwa Telecom",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFkzCCA3ugAwIBAgIRANaWLsEKFZMSr49jvNREyVswDQYJKoZIhvcNAQELBQAw
 YzELMAkGA1UEBhMCVFcxIzAhBgNVBAoMGkNodW5naHdhIFRlbGVjb20gQ28uLCBM
@@ -406,6 +416,7 @@ sV0rtVa1QoufgcX8k0wQtboKvH434/pUbfUExXCzqQTSUdeFzX1vQ49ZaOUxVhFx
   {
     name: "Chunghwa Telecom HiPKI Root CA - G1",
     category: 'private',
+    vendor: "Chunghwa Telecom",
     pem: `-----BEGIN CERTIFICATE-----
 MIIFajCCA1KgAwIBAgIQLd2szmKXlKFD6LDNdmpeYDANBgkqhkiG9w0BAQsFADBP
 MQswCQYDVQQGEwJUVzEjMCEGA1UECgwaQ2h1bmdod2EgVGVsZWNvbSBDby4sIEx0
@@ -440,6 +451,492 @@ YDksswBVLuT1sw5XxJFBAJw/6KXf6vb/yPCtbVKoF6ubYfwSUTXkJf2vqmqGOQ==
     expectedFingerprint: 'f0:15:ce:3c:c2:39:bf:ef:06:4b:e9:f1:d2:c4:17:e1:a0:26:4a:0a:94:be:1f:0c:8d:12:18:64:eb:69:49:cc',
     source: "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot",
     notes: "C=TW, O=Chunghwa Telecom Co.\\, Ltd., CN=HiPKI Root CA - G1; valid 2019-02-22 → 2037-12-31",
+  },
+  {
+    name: "DigiCert Trusted Root G4",
+    category: 'international',
+    vendor: "DigiCert",
+    usage: ["signing","timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIFkDCCA3igAwIBAgIQBZsbV56OITLiOQe9p3d1XDANBgkqhkiG9w0BAQwFADBi
+MQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3
+d3cuZGlnaWNlcnQuY29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3Qg
+RzQwHhcNMTMwODAxMTIwMDAwWhcNMzgwMTE1MTIwMDAwWjBiMQswCQYDVQQGEwJV
+UzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQu
+Y29tMSEwHwYDVQQDExhEaWdpQ2VydCBUcnVzdGVkIFJvb3QgRzQwggIiMA0GCSqG
+SIb3DQEBAQUAA4ICDwAwggIKAoICAQC/5pBzaN675F1KPDAiMGkz7MKnJS7JIT3y
+ithZwuEppz1Yq3aaza57G4QNxDAf8xukOBbrVsaXbR2rsnnyyhHS5F/WBTxSD1If
+xp4VpX6+n6lXFllVcq9ok3DCsrp1mWpzMpTREEQQLt+C8weE5nQ7bXHiLQwb7iDV
+ySAdYyktzuxeTsiT+CFhmzTrBcZe7FsavOvJz82sNEBfsXpm7nfISKhmV1efVFiO
+DCu3T6cw2Vbuyntd463JT17lNecxy9qTXtyOj4DatpGYQJB5w3jHtrHEtWoYOAMQ
+jdjUN6QuBX2I9YI+EJFwq1WCQTLX2wRzKm6RAXwhTNS8rhsDdV14Ztk6MUSaM0C/
+CNdaSaTC5qmgZ92kJ7yhTzm1EVgX9yRcRo9k98FpiHaYdj1ZXUJ2h4mXaXpI8OCi
+EhtmmnTK3kse5w5jrubU75KSOp493ADkRSWJtppEGSt+wJS00mFt6zPZxd9LBADM
+fRyVw4/3IbKyEbe7f/LVjHAsQWCqsWMYRJUadmJ+9oCw++hkpjPRiQfhvbfmQ6QY
+uKZ3AeEPlAwhHbJUKSWJbOUOUlFHdL4mrLZBdd56rF+NP8m800ERElvlEFDrMcXK
+chYiCd98THU/Y+whX8QgUWtvsauGi0/C1kVfnSD8oR7FwI+isX4KJpn15GkvmB0t
+9dmpsh3lGwIDAQABo0IwQDAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIB
+hjAdBgNVHQ4EFgQU7NfjgtJxXWRM3y5nP+e6mK4cD08wDQYJKoZIhvcNAQEMBQAD
+ggIBALth2X2pbL4XxJEbw6GiAI3jZGgPVs93rnD5/ZpKmbnJeFwMDF/k5hQpVgs2
+SV1EY+CtnJYYZhsjDT156W1r1lT40jzBQ0CuHVD1UvyQO7uYmWlrx8GnqGikJ9yd
++SeuMIW59mdNOj6PWTkiU0TryF0Dyu1Qen1iIQqAyHNm0aAFYF/opbSnr6j3bTWc
+fFqK1qI4mfN4i/RN0iAL3gTujJtHgXINwBQy7zBZLq7gcfJW5GqXb5JQbZaNaHqa
+sjYUegbyJLkJEVDXCLG4iXqEI2FCKeWjzaIgQdfRnGTZ6iahixTXTBmyUEFxPT9N
+cCOGDErcgdLMMpSEDQgJlxxPwO5rIHQw0uA5NBCFIRUBCOhVMt5xSdkoF1BN5r5N
+0XWs0Mr7QbhDparTwwVETyw2m+L64kW4I1NsBm9nVX9GtUw/bihaeSbSpKhil9Ie
+4u1Ki7wb/UdKDd9nZn6yW0HQO+T0O/QEY+nvwlQAUaCKKsnOeMzV6ocEGLPOr0mI
+r/OSmbaz5mEP0oUA51Aa5BuVnRmhuZyxm7EAHu/QD09CbMkKvO5D+jpxpchNJqU1
+/YldvIViHTLSoCtU7ZpXwdv6EM8Zt4tKG48BtieVU+i2iW1bvGjUI+iLUaJW+fCm
+gKDWHrO8Dw9TdSmq6hN35N6MgSGtBxBHEa2HPQfRdbzP82Z+
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '55:2f:7b:dc:f1:a7:af:9e:6c:e6:72:01:7f:4f:12:ab:f7:72:40:c7:8e:76:1a:c2:03:d1:d9:d2:0a:c8:99:88',
+    source: "https://cacerts.digicert.com/DigiCertTrustedRootG4.crt (linked from https://www.digicert.com/kb/digicert-root-certificates.htm; page SHA-256 matches)",
+    notes: "C=US, O=DigiCert Inc, OU=www.digicert.com, CN=DigiCert Trusted Root G4; valid 2013-08-01 → 2038-01-15",
+  },
+  {
+    name: "GlobalSign Document Signing Root R45",
+    category: 'international',
+    vendor: "GlobalSign",
+    usage: ["signing"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIFejCCA2KgAwIBAgIQdlP+sEyg1XHyFLOOLH8XQTANBgkqhkiG9w0BAQwFADBX
+MQswCQYDVQQGEwJCRTEZMBcGA1UEChMQR2xvYmFsU2lnbiBudi1zYTEtMCsGA1UE
+AxMkR2xvYmFsU2lnbiBEb2N1bWVudCBTaWduaW5nIFJvb3QgUjQ1MB4XDTIwMDMx
+ODAwMDAwMFoXDTQ1MDMxODAwMDAwMFowVzELMAkGA1UEBhMCQkUxGTAXBgNVBAoT
+EEdsb2JhbFNpZ24gbnYtc2ExLTArBgNVBAMTJEdsb2JhbFNpZ24gRG9jdW1lbnQg
+U2lnbmluZyBSb290IFI0NTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIB
+AKPQGKqmJaBoxSoYFVYt/dBLfaEecm4xsZ0STDc8LAzKutUukiBLkultAJxEbzgX
+7xlg8skghJR6OwgNa0hl/NAeJPXU3NpHUphO342nitTllKh8siw4i+XSLZwAGTM3
+irhsZWIblOjjm6R1ay2AGh0b5i+n7HHq6wQPsanAk1JhIC29UptoWDRLa0tbPm1y
+1jjYlUGTTnn9T9W1/MiApVkIN+iyet62eQxB4PFg1i7y5KFN2BOrz45kW3zc5jEp
+Hg2Qtjjo0PY6TTDHePklFWfhz3/3k5B/3kD6aYt9oENfRfnCS5d/UWEuC2LOYNoN
+X3bMlJwd2IXs70V+vuoq0D8UjWkgfgxW/epp9KlEweatJ/9Ycah9LzufHn/ZcgXo
+kSSAGtQheY4uWvr5j7AQKDCNquDyk9s9cVGrs553LgaAN4oLTg+YejcboM1JpUEQ
+hMOfUG0vKI4u88+2x1SBbiychxEN7eP1hIsr/hSQu0ooVDRMZ/viKnN2JpFfx9o/
+Np/aJy8nDcDHOf7b4/k2aYKAvfXB8aAz7od2H4gJft3oQbS+DxCkBuXt4Qh7JfdH
+B7wqJQ8xOpGoqhMzkK8Op2DWgn1nTTQW4We7eeuCMEa0APhZuw78sxCRRSPY8TFC
+BLFgZ6hjg7KsP5/3GBiETFGFZpoqHNLbKbmbG0Ma6jPtAgMBAAGjQjBAMA4GA1Ud
+DwEB/wQEAwIBhjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBQHQVdLz+EcFlPV
+veuDbMyLKSGEvzANBgkqhkiG9w0BAQwFAAOCAgEAJJwyIaZykDsC3f64SqaO8Dew
+W/8uP7Enbtl+nvSPX36/u4OFcMSKj0ZdxgpRKQLIxqBD/cICE/I6IZLdRpXDdLg8
+VyIBhGhns1Beem4spPSj9QsM+VoNR4VFGk+bTNGokfOJqj5JqvWEsRe0S+ZeaRT9
+RBsK/yDOCP70ZXKtxSJc3PKljMXcHWzb95anN2oaMLxrWTDjDUjxuGS5F5XG5J+D
+prLujbvhniXMwFaoAQeRa6Qu6hPr2/FJb+U7OpYn/kRQ4Qw0qxgQwaZwieJSyB2/
+YtY0guX+x5gAYRCAdyd8rF1yQrgiD3Ig9wpH0FUGVU/vZG2z/DrgoVZPZ8lFVMQT
+IfurtfoxGlsGaU463x4gvCB/sCt0MtaodrM6PgseIETeh6b3UgsLjxT4MQOq6hHJ
+2ZVGwIS72OsrLwpQxDgjf2+zv8Mnt/VMhwFzSQflwIyt7MeBQo/bXWsO2yHystfX
+kieXNu3GS19zR7kMuA3cSUtFsr8xjuFVhCfpWBoxwg4m01/Ri70gXXHfl2Hd35XJ
+4Msv20ScC3QKfRuKtE+MKJZM6CnLilxY8bg9bsLd2myyB6mr6NHR0niwPtPFaY13
+54Rk+LFW8fsZ0Yhmbz0bZcglRTwfdDseHDjr8aMsUsG/6CH0Lo4yg58V6vQNo5RH
+Rn7JhIJYRobXTF+4bZk=
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '38:be:6c:7e:eb:45:47:d8:2b:92:87:f2:43:af:32:a9:de:eb:5d:c5:c9:a8:7a:00:56:f9:38:d9:1b:45:6a:5a',
+    source: "https://secure.globalsign.com/cacert/docsignrootr45.crt",
+    notes: "C=BE, O=GlobalSign nv-sa, CN=GlobalSign Document Signing Root R45; valid 2020-03-18 → 2045-03-18",
+  },
+  {
+    name: "GlobalSign Document Signing Root E45",
+    category: 'international',
+    vendor: "GlobalSign",
+    usage: ["signing"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIICLDCCAbGgAwIBAgIQdlP+sK9LdZCiGuSi1fJ2tTAKBggqhkjOPQQDAzBXMQsw
+CQYDVQQGEwJCRTEZMBcGA1UEChMQR2xvYmFsU2lnbiBudi1zYTEtMCsGA1UEAxMk
+R2xvYmFsU2lnbiBEb2N1bWVudCBTaWduaW5nIFJvb3QgRTQ1MB4XDTIwMDMxODAw
+MDAwMFoXDTQ1MDMxODAwMDAwMFowVzELMAkGA1UEBhMCQkUxGTAXBgNVBAoTEEds
+b2JhbFNpZ24gbnYtc2ExLTArBgNVBAMTJEdsb2JhbFNpZ24gRG9jdW1lbnQgU2ln
+bmluZyBSb290IEU0NTB2MBAGByqGSM49AgEGBSuBBAAiA2IABIblQ9C7AGVe1koK
+Y4WeRQ+GIzJQVUljapzO96/0fiD5gDJbbrDv8sekLPtqWZAGdrcXjA51RDqAfMjc
+Aj3yzqGes0tyy8aM/cLJqoyuM1zqeUvcachWpDwoQXB0jmoaSKNCMEAwDgYDVR0P
+AQH/BAQDAgGGMA8GA1UdEwEB/wQFMAMBAf8wHQYDVR0OBBYEFGGZArQQ/xA823ra
+bDpwJANg8eeOMAoGCCqGSM49BAMDA2kAMGYCMQCP9ck/sU7z99GdtLoPPQqXJxCT
+8lB8IonajNTKqWMkJiqLY4JjVMc08NGeehgLp+oCMQCxNY9K8vsmBsHTDY9i0bDE
+oF3pk9ZhxOGhuVyo9fFnXqIpN8JLxmdy/oyQ+SSAd7c=
+-----END CERTIFICATE-----`,
+    expectedFingerprint: 'f8:69:73:bd:d0:51:47:35:e1:0c:11:90:d0:34:5b:f8:9c:77:e1:c4:ad:bd:3f:65:96:3b:80:3f:d3:c9:e1:ff',
+    source: "https://secure.globalsign.com/cacert/docsignroote45.crt",
+    notes: "C=BE, O=GlobalSign nv-sa, CN=GlobalSign Document Signing Root E45; valid 2020-03-18 → 2045-03-18",
+  },
+  {
+    name: "GlobalSign Timestamping Root R45",
+    category: 'international',
+    vendor: "GlobalSign",
+    usage: ["timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIFcjCCA1qgAwIBAgIQdlP+uT3Z5+kmMqzWCr6sODANBgkqhkiG9w0BAQwFADBT
+MQswCQYDVQQGEwJCRTEZMBcGA1UEChMQR2xvYmFsU2lnbiBudi1zYTEpMCcGA1UE
+AxMgR2xvYmFsU2lnbiBUaW1lc3RhbXBpbmcgUm9vdCBSNDUwHhcNMjAwMzE4MDAw
+MDAwWhcNNDUwMzE4MDAwMDAwWjBTMQswCQYDVQQGEwJCRTEZMBcGA1UEChMQR2xv
+YmFsU2lnbiBudi1zYTEpMCcGA1UEAxMgR2xvYmFsU2lnbiBUaW1lc3RhbXBpbmcg
+Um9vdCBSNDUwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIKAoICAQC6dDPsJ9wS
+OCEbxdNhKNZavE/fi8yRhEMkV7xkIbw7HB89T4ytB7fzxdcC6REUgpqqtJRyO3EN
+Gu9oa4V5jq9m6liYDbrBfHnS/82zbzFF0AV0BAByaid+uDc/Oojtl4P1qzVND59Z
+O/Uv31nFfKUydmCWyO3u+AR+GVFyqL9EQXq8ex47AJu8uuCWv5D+jZvDcosAEvgg
+OmA498HMhYr7h3kuoSsg5sughZEjtsQoB1Qo3uwQMU+K8s0UHx7dVRzqKDFM+SFq
+qM3zlmf6AUGbzQ8LaH+73vFD6hflsNxwIrNpNll0a8bliSp85QuBXas/j7jRdnLz
+fKKp4pdBv8yMRf5hyfZsBwsABOgVI0+CKi3278P6ETZIodH9ejk6NF2jLA6bd1Ag
+NEDdsQMxrV/pYodzlgNh95Sw2VxsT+cUxeHxew0jnM1wjB1q3kotiyq720IUBQeq
++xTcMdP2H2zLvmhmRHBNbRf5cesFc46RknXraFwe9kRhGCli3RdmiOwouklv2z53
+/rkxH3UcGKKmR73Y7kiFO/2z4g8/KpjGmvqCb7GlpYYdWjr6pGx0D3dSYWp/hyne
+OZuL7rNFYDAklxUSKoUwkyaslqYt6HBtC6kyrSybKAp2QvJVYVGYlN7t9sUXbzwV
+ELAOrbDexRb0ZdHML1pWCM+ZxPBVkcIseQIDAQABo0IwQDAOBgNVHQ8BAf8EBAMC
+AYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQURrIcd+F7FfClOaFw3tHELupt
+st4wDQYJKoZIhvcNAQEMBQADggIBABZ8CmdKAzyTKj4cT0ZVsJqeiOHrU/1MVXmE
++Wy2n6kKtomrVAcUFkpJWvS4LoYUxH4ZifmHiLzsstKVjOAM+fKUZqaYVxuh39Fx
+fYy1+HEC3RO2vvqwMcMsZ+saGA4aTdwszzFcYSipneNqLK5QSw460Gn7ijRE335L
+jhqQCdox2sovpff0Nyw1DRpizTx7PFZ3ZZVclHNwn2EvaWQjHUx5B8IXfDrtqm1x
+AxRiRcy3PlTYUXFC6juSQqUvVIGjsAxWWFa75JjuZscR+ahFF+JlKore4qjOxS32
+9c6t8OMKCd1Te2ypbIZ+od42NQAPX4D9RbtxZkPURCzQuwFOmZ4+TeFeVh8FeoId
+ssstpTO5OeXEt9pC4b3QlEKA+hiUO5NDqMiUOm1+nfxPoMLT5aWqECZvBiJb4AHi
+Sr8Z5USesK2rGdLN60fEYoHs8MJ6jUz9wiW3vCxwjqqtUvQUPKp4HQTTydUlgqda
+y4x8H1cCO4cbyNf5VBodyhpLJ7HiSu/nmkAUT6U8n9WjvpQ1nMLXPyjupBcrQ71k
+p9ev6VPnp3cexRIbMeJLxn+eHO6jOpRQXaZQBlJeRQMrtADgwe3YDcGuu0kJgYJa
+QkOvmWO4FNE8i93V8FTtcmfC9so+NYSHgA1SlVBB1rINGUAvthNN97Fg1HbFVzlu
+WqJeCnnc
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '2b:cb:bf:d6:62:82:c6:80:49:1c:8c:d7:73:5f:db:ba:b7:a8:07:9b:12:7b:ec:60:c5:35:97:68:34:39:9a:f7',
+    source: "https://secure.globalsign.com/cacert/timestamprootr45.crt",
+    notes: "C=BE, O=GlobalSign nv-sa, CN=GlobalSign Timestamping Root R45; valid 2020-03-18 → 2045-03-18",
+  },
+  {
+    name: "GlobalSign Timestamping Root E46",
+    category: 'international',
+    vendor: "GlobalSign",
+    usage: ["timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIB5jCCAYygAwIBAgIQeSmbK9KV/WBcNvSHrZ6injAKBggqhkjOPQQDAjBTMQsw
+CQYDVQQGEwJCRTEZMBcGA1UEChMQR2xvYmFsU2lnbiBudi1zYTEpMCcGA1UEAxMg
+R2xvYmFsU2lnbiBUaW1lc3RhbXBpbmcgUm9vdCBFNDYwHhcNMjEwMzI0MDAwMDAw
+WhcNNDYwMzI0MDAwMDAwWjBTMQswCQYDVQQGEwJCRTEZMBcGA1UEChMQR2xvYmFs
+U2lnbiBudi1zYTEpMCcGA1UEAxMgR2xvYmFsU2lnbiBUaW1lc3RhbXBpbmcgUm9v
+dCBFNDYwWTATBgcqhkjOPQIBBggqhkjOPQMBBwNCAAQohilqizFp79ZWHNG4/Lev
+fEvxIWZkYKZA0H6XOrfgUBJRFLyHIAD3taV31I0FM9COZHx5K6WCoBCFaGA82rC9
+o0IwQDAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQU
+plk86WYwLhKZVRGmgO4eCPx8uJkwCgYIKoZIzj0EAwIDSAAwRQIhAIFovi6K102m
+TSmQA+NanPqwMcs+PdwSEa6zJSNtlA6jAiBlbUwnWJv7c6ISYDdp2IfidmhtCY8e
+xApVhs4XzHnUpg==
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '47:74:67:4b:94:b7:8f:5c:cb:ef:89:fd:de:bd:ab:bd:89:4a:71:b5:55:76:b8:cc:5e:68:76:ba:3e:ab:45:38',
+    source: "https://secure.globalsign.com/cacert/timestamproote46.crt",
+    notes: "C=BE, O=GlobalSign nv-sa, CN=GlobalSign Timestamping Root E46; valid 2021-03-24 → 2046-03-24",
+  },
+  {
+    name: "Sectigo Public Document Signing Root R46",
+    category: 'international',
+    vendor: "Sectigo",
+    usage: ["signing"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIFgTCCA2mgAwIBAgIRAPp8vuqLl6II0CumlEkEWJ8wDQYJKoZIhvcNAQEMBQAw
+WjELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1NlY3RpZ28gTGltaXRlZDExMC8GA1UE
+AxMoU2VjdGlnbyBQdWJsaWMgRG9jdW1lbnQgU2lnbmluZyBSb290IFI0NjAeFw0y
+MTAzMjIwMDAwMDBaFw00NjAzMjEyMzU5NTlaMFoxCzAJBgNVBAYTAkdCMRgwFgYD
+VQQKEw9TZWN0aWdvIExpbWl0ZWQxMTAvBgNVBAMTKFNlY3RpZ28gUHVibGljIERv
+Y3VtZW50IFNpZ25pbmcgUm9vdCBSNDYwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAw
+ggIKAoICAQDlIUEdMIkysPnt6TfleH87uVXDoqkeUirhhx2Trzi9yfqV3/mYAwF4
+YKnB+irckOPrAnqG675f32NXPWp8stzyb07DWc5+CQcBPalL2kywA8AlvpXDmT5V
+K/sWGRIBYVe8J5cyDSgf26jiqirYzkQuJkeZH0EIa109jFKQuYi/woN9wV9u83bJ
+EaCyRXCPHg64sntomsexRoxmGdG+BBuKUIrfsYIkMJYIFhVTnRBFM7OI4oudrYoK
+i14Q/+A4hdQp2QJa5mh2le8yDm3b/VhRLlDnEtuaaZ0iQ2zwKCFgsQF+60lw/QvX
+OgenHlFvuAF+cc8EW0/d0uJUaM9N0THvRmsXxpTGBMpw499BlmqNx26+MgcjbKQD
+SHk75Wu2cdN9ZQxuqd7WNnKeaF6I9Np/ILGShHH1gF4dVu2pAoZ5hXZuSko5rJeB
+dJSGyS9JiU9850L0WSAPLd3hmEdlo3qbsVxMYAyHId4zGrq/i/AOtPeqvJgyVX5R
+9Uz/sJYj9AEiM+BWn5YWS+T3Kbrz6BcK6BV6Nu4HhCa0mQVZNX6olPRO2uHoLt5t
+BSqF4uQfNZLfmHrXItRQpD1VTXmDwcz35RIfvuElDB5Gc6ZADEvhzwtFOfqObxxe
+GuFSJ7gKCmXRCwkC8gwQC81LhV8VSMkCeETSh97nUaLE+ygENhAztwIDAQABo0Iw
+QDAdBgNVHQ4EFgQUsTh5urRikU6LxEsVH8XP78Ogp/cwDgYDVR0PAQH/BAQDAgGG
+MA8GA1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEMBQADggIBAKnbmbZQgtZri1GI
+3Q4K+Tea4S0K++c8RmSpvAWkwl26taGBFg723rpO5m8WvEqz16Errk8WZ1aw7h4b
+U7Ld4NcAsfo/+w9NVepOatmrtCsQWFeR1VVnK6tdx6X5IqV7jV9ylTKfIueRhc4E
+fewz9Py4o0Cyaskic1943pTyo+YyTj32Ra7A2naE/rz+tgLgT5foap2Y8ouGg8qx
+9sFArX/7T7uqmVMGbfxFv3KmNUNzKvgkiW3vPUGeeJIjIO2G+i92tRxON7PNlydW
+WfKREM1f5CLTpj/xtaRS8hMUHphE5DYnLioIfeIKIJjztsxMO07+bbQFD1wiABpr
+V0FENcwsGu8SQ93dPPm17++zHEXdwKZ/1/t5Jiuf7PgJyZ0q07aBXEgShye4cUfL
+YUI3uEYKudw8MV/sRlFkSOIpgamnIsuO7rwhB+9HD5+Hp20CofxZtu2L+KSatV6l
+csaOljeMPDwXaKveUptkr93knja31gfaczlhhr54pQckph+CZk/MVTkuSb5Nyyvn
+fOyiFNYe4AWRkPGBC0pOe8wCX2afGAHkU6P1GMHZVfgee2NHk0m9cn5v3FCTkUa7
+WiRB+a6jBLQec7noRg/9/qLZu36ZYMof2J7unVwoecZkMRoqSSIKAOPaYNyGlmNr
+6ERdEctVuyQV+q+ezyL8ChSqfiVD
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '43:a6:10:38:59:7c:31:f4:e7:d7:5d:ee:b8:31:e3:84:62:d9:68:30:8c:68:b5:a0:78:f7:19:13:97:35:da:89',
+    source: "http://crt.sectigo.com/SectigoPublicDocumentSigningRootR46.crt (HTTPS connection reset from this network; HTTP used, integrity covered by CCADB SHA-256 match)",
+    notes: "C=GB, O=Sectigo Limited, CN=Sectigo Public Document Signing Root R46; valid 2021-03-22 → 2046-03-21",
+  },
+  {
+    name: "Sectigo Public Document Signing Root E46",
+    category: 'international',
+    vendor: "Sectigo",
+    usage: ["signing"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIICMjCCAbegAwIBAgIQYUpJ6aqH9NWaPuIusq1bNzAKBggqhkjOPQQDAzBaMQsw
+CQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMTEwLwYDVQQDEyhT
+ZWN0aWdvIFB1YmxpYyBEb2N1bWVudCBTaWduaW5nIFJvb3QgRTQ2MB4XDTIxMDMy
+MjAwMDAwMFoXDTQ2MDMyMTIzNTk1OVowWjELMAkGA1UEBhMCR0IxGDAWBgNVBAoT
+D1NlY3RpZ28gTGltaXRlZDExMC8GA1UEAxMoU2VjdGlnbyBQdWJsaWMgRG9jdW1l
+bnQgU2lnbmluZyBSb290IEU0NjB2MBAGByqGSM49AgEGBSuBBAAiA2IABKiuwyAM
+8izi5033qr0xDn7iXKFD1NLEV6rAH+S6QRhY7JLurmABBptfkPOB+b6aapMQ8RPX
+3FqFt1QO5Y1tCSeuPS1uk+aLUL2IMqrfHkeXmPNKWwGe9gtl+iPgBuKwBKNCMEAw
+HQYDVR0OBBYEFIjTI5HUyTL7aCzd/q+HY54/MUdoMA4GA1UdDwEB/wQEAwIBhjAP
+BgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMDA2kAMGYCMQDcF0HTJd8NlKjYxoLC
+BKT24EMgD+tPsU8szaO7Qfq5WhUoumyPLtlKczHHYUt8sakCMQCcqvN2n/G1Vcb6
+qq7BtFnGjDFEZB8P4A70bYBbtP4rwMlTCTvF6cF6Z4Rc/k8cIUU=
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '01:a1:a0:3e:1f:3d:d7:ed:3c:ca:da:e4:d6:68:b4:44:60:65:dd:f3:b2:dc:f0:5d:1d:af:fd:b2:59:1b:38:38',
+    source: "http://crt.sectigo.com/SectigoPublicDocumentSigningRootE46.crt (HTTPS connection reset from this network; HTTP used, integrity covered by CCADB SHA-256 match)",
+    notes: "C=GB, O=Sectigo Limited, CN=Sectigo Public Document Signing Root E46; valid 2021-03-22 → 2046-03-21",
+  },
+  {
+    name: "Sectigo Public Time Stamping Root R46",
+    category: 'international',
+    vendor: "Sectigo",
+    usage: ["timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIFejCCA2KgAwIBAgIQeD0FbPqDLn5p+FYidp8CuTANBgkqhkiG9w0BAQwFADBX
+MQswCQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQD
+EyVTZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFJvb3QgUjQ2MB4XDTIxMDMy
+MjAwMDAwMFoXDTQ2MDMyMTIzNTk1OVowVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoT
+D1NlY3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBT
+dGFtcGluZyBSb290IFI0NjCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIB
+AIid2LlFZ50d3ei5JoGaVFTAfEkFm8xaFQ/ZlBBEtEFAgXcUmanU5HYsyAhTXiDQ
+kiUvpVdYqZ1uYoZEMgtHES1l1Cc6HaqZzEbOOp6YiTx63ywTon434aXVydmhx7Dx
+4IBrAou7hNGsKioIBPy5GMN7KmgYmuu4f92sKKjbxqohUSfjk1mJlAjthgF7Hjx4
+vvyVDQGsd5KarLW5d73E3ThobSkob2SL48LpUR/O627pDchxll+bTSv1gASn/hp6
+IuHJorEu6EopoB1CNFp/+HpTXeNARXUmdRMKbnXWflq+/g36NJXB35ZvxQw6zid6
+1qmrlD/IbKJA6COw/8lFSPQwBP1ityZdwuCysCKZ9ZjczMqbUcLFyq6KdOpuzVDR
+3ZUwxDKL1wCAxgL2Mpz7eZbrb/JWXiOcNzDpQsmwGQ6Stw8tTCqPumhLRPb7YkzM
+8/6NnWH3T9ClmcGSF22LEyJYNWCHrQqYubNeKolzqUbCqhSqmr/UdUeb49zYHr7A
+LL8bAJyPDmubNqMtuaobKASBqP84uhqcRY/pjnYd+V5/dcu9ieERjiRKKsxCG1t6
+tG9oj7liwPddXEcYGOUiWLm742st50jGwTzxbMpepmOP1mLnJskvZaN5e45NuzAH
+teORlsSuDt5t4BBRCJL+5EZnnw0ezntk9R8QJyAkL6/bAgMBAAGjQjBAMB0GA1Ud
+DgQWBBT2d2rdP/0BE/8WoWyCAi/QCj0UJTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0T
+AQH/BAUwAwEB/zANBgkqhkiG9w0BAQwFAAOCAgEACv68sZqZvmHk7JoU7AfTEZ7b
+X45u40OrLX/6vzHQAwDg1TB00bWbiwj+7+we60BP8AMsw1h5NCXWxeyvrEVC54Mi
+rwVrcF6SFGjRwRoelRuiaZ5FDO4oWhaePjZx3/jkQ7j653CA5WscYqlneLXBEZiY
+o6rRNqnsZHZTQ606mlkNpsy3TFMADv5whZmilVEZ83OvydfH2DNL3FTkpZG7+lHS
+1DFHMSUB5UtSSeSRg2UWTXwU5oObGjFk/35fC/dlF+nJIXdqsw0TZSS86bi5GRCJ
+VjqjnkpZ0Jut7ucEv4PNOIU8ijkMRj17QPjHMtdy+WxBDDSdas/UFTVB/GF+Fofn
+OD3iZ4tXxFjPU3EWRcMWx8fcGyzlBfcjeoPNbNC7wfyV9Qkzfk2Bd48jGxG7OThY
+Wolc56vmBHqDEfguDwYc9AeWirMVRDi+WYlsktzAEObiFoPqs+LWU5q7+Q1+nEcs
+tNuDIedeBRcHmtjL2hV3luuEWwDSnRhSjhPLPXzqpJ1rG3r4yqm1NjKg5A5QO9Az
+veHqRQldluTSKuu96oPEPusL2oF+4MxkJ+SQMGFWTw/PNCblUN8GXeL5+mR20diP
+5LiJMq8U3IpM/0Q7OFFQ+lXuYFIuDvUprWBPsp5La2WhL2+iLVVXItSl7up5yQqX
+XftzTXTX48FRiJ6PA9o=
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '49:41:b0:01:b8:a9:7e:96:1b:78:17:c9:d9:e9:60:ec:4b:05:6b:fc:91:5a:8c:1a:ab:f6:ef:6b:3a:c0:46:a5',
+    source: "http://crt.sectigo.com/SectigoPublicTimeStampingRootR46.crt (HTTPS connection reset from this network; HTTP used, integrity covered by CCADB SHA-256 match)",
+    notes: "C=GB, O=Sectigo Limited, CN=Sectigo Public Time Stamping Root R46; valid 2021-03-22 → 2046-03-21",
+  },
+  {
+    name: "Sectigo Public Time Stamping Root E46",
+    category: 'international',
+    vendor: "Sectigo",
+    usage: ["timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIICKzCCAbGgAwIBAgIQVWKmxZS9D8nZwdZJtffjFTAKBggqhkjOPQQDAzBXMQsw
+CQYDVQQGEwJHQjEYMBYGA1UEChMPU2VjdGlnbyBMaW1pdGVkMS4wLAYDVQQDEyVT
+ZWN0aWdvIFB1YmxpYyBUaW1lIFN0YW1waW5nIFJvb3QgRTQ2MB4XDTIxMDMyMjAw
+MDAwMFoXDTQ2MDMyMTIzNTk1OVowVzELMAkGA1UEBhMCR0IxGDAWBgNVBAoTD1Nl
+Y3RpZ28gTGltaXRlZDEuMCwGA1UEAxMlU2VjdGlnbyBQdWJsaWMgVGltZSBTdGFt
+cGluZyBSb290IEU0NjB2MBAGByqGSM49AgEGBSuBBAAiA2IABNyiD7Sl1t4p03wW
+ByX1PBd702QZC2WxghlJwr4YXAfE48F84LhBns77yP5KSCqZo+dtvK7/MhSh4k5I
+CLdCR2JwDQbN28S1ypkwT0e4hXM0etMtOotYSlxf8N3ClyGjt6NCMEAwHQYDVR0O
+BBYEFMxHPqoV3ZI2JS+wAd/PbkXBXd8qMA4GA1UdDwEB/wQEAwIBhjAPBgNVHRMB
+Af8EBTADAQH/MAoGCCqGSM49BAMDA2gAMGUCMECx3XLh2pJo9kD1/Cukj9yf5Uml
+MuxgVfxVVvUlYGGz3v4sOgSRDHvy6mzE2WsaVAIxAI4DpnVIJ0Yr/nI9+bExuc8l
+lPov4BAdnS880mtVlyBYc/s7+vZpK+XBTnzXXeZgOw==
+-----END CERTIFICATE-----`,
+    expectedFingerprint: 'e4:4d:db:79:52:26:1f:15:00:5c:d6:0c:1d:0c:38:c1:8c:bf:d1:7c:27:3a:31:f8:ed:4c:8f:53:e2:68:5f:32',
+    source: "http://crt.sectigo.com/SectigoPublicTimeStampingRootE46.crt (HTTPS connection reset from this network; HTTP used, integrity covered by CCADB SHA-256 match)",
+    notes: "C=GB, O=Sectigo Limited, CN=Sectigo Public Time Stamping Root E46; valid 2021-03-22 → 2046-03-21",
+  },
+  {
+    name: "IdenTrust Commercial Root CA 1",
+    category: 'international',
+    vendor: "IdenTrust",
+    usage: ["signing","timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIFYDCCA0igAwIBAgIQCgFCgAAAAUUjyES1AAAAAjANBgkqhkiG9w0BAQsFADBK
+MQswCQYDVQQGEwJVUzESMBAGA1UEChMJSWRlblRydXN0MScwJQYDVQQDEx5JZGVu
+VHJ1c3QgQ29tbWVyY2lhbCBSb290IENBIDEwHhcNMTQwMTE2MTgxMjIzWhcNMzQw
+MTE2MTgxMjIzWjBKMQswCQYDVQQGEwJVUzESMBAGA1UEChMJSWRlblRydXN0MScw
+JQYDVQQDEx5JZGVuVHJ1c3QgQ29tbWVyY2lhbCBSb290IENBIDEwggIiMA0GCSqG
+SIb3DQEBAQUAA4ICDwAwggIKAoICAQCnUBneP5k91DNG8W9RYYKyqU+PZ4ldhNlT
+3Qwo2dfw/66VQ3KZ+bVdfIrBQuExUHTRgQ18zZshq0PirK1ehm7zCYofWjK9ouuU
++ehcCuz/mNKvcbO0U59Oh++SvL3sTzIwiEsXXlfEU8L2ApeN2WIrvyQfYo3fw7gp
+S0l4PJNgiCL8mdo2yMKi1CxUAGc1bnO/AljwpN3lsKImesrgNqUZFvX9t++uP0D1
+bVoE/c40yiTcdCMbXTMTEl3EASX2MN0CXZ/g1Ue9tOsbobtJSdifWwLziuQkkORi
+T0/Br4sOdBeo0XKIanoBScy0RnnGF7HamB4HWfp1IYVl3ZBWzvurpWCdxJ35UrCL
+vYf5jysjCiN2O/cz4ckA82n5S6LgTrx+kzmEB/dEcH7+B1rlsazRGMzyNeVJSQjK
+Vsk9+w8YfYs7wRPCTY/JTw436R+hDmrfYi7LNQZReSzIJTj0+kuniVyc0uMNOYZK
+dHzVWYfCP04MXFL0PfdSgvHqo6z9STQaKPNBiDoT7uje/5kdX7rL6B7yuVBgwDHT
+c+XvvqDtMwt0viAgxGds8AgDelWAf0ZOlqf0Hj7h9tgJ4TNkK2PXMl6f+cB7D3hv
+l7yTmvmcEpB4eoCHFddydJxVdHixuuFucAS6T6C6aMN7/zHwcz09lCqxC0EOoP5N
+iGVreTO01wIDAQABo0IwQDAOBgNVHQ8BAf8EBAMCAQYwDwYDVR0TAQH/BAUwAwEB
+/zAdBgNVHQ4EFgQU7UQZwNPwBovupHu+QucmVMiONnYwDQYJKoZIhvcNAQELBQAD
+ggIBAA2ukDL2pkt8RHYZYR4nKM1eVO8lvOMIkPkp165oCOGUAFjvLi5+U1KMtlwH
+6oi6mYtQlNeCgN9hCQCTrQ0U5s7B8jeUeLBfnLOic7iPBZM4zY0+sLj7wM+x8uwt
+LRvM7Kqas6pgghstO8OEPVeKlh6cdbjTMM1gCIOQ045U8U1mwF10A0Cj7oV+wh93
+nAbowacYXVKV7cndJZ5t+qntozo00Fl72u1Q8zW/7esUTTHHYPTa8Yec4kjixsU3
++wYQ+nVZZjFHKdp2mhzpgq7vmrlR94gjmmmVYjzlVYA211QC//G5Xc7UI2/YRYRK
+W2XviQzdFKcgyxilJbQN+QHwotL0AMh0jqEqSI5l2xPE4iUXfeu+h1sXIFRRk0pT
+AwvsXcoz7WL9RccvW9xYoIA55vrX/hMUpu09lEpCdNTDd1lzzY9GvlU47/rokTLq
+l1gEIt44w8y8bckzOmoKaT+gyOpyj4xjhiO9bTyWnpXgSUyqorkqG5w2gXjtw+hG
+4iZZRHUe2XWJUc0QhJ1hYMtd+ZciTY6Y5uN/9lu7rs3KSoFrXgvzUeF0K+l+J6fZ
+mUlO+KWA2yUPHGNiiskzZ2s8EIPGrd6ozRaOjfAHN3Gf8qv8QfXBi+wAN10J5U6A
+7/qxXDgGpRtK4dw4LTzcqx+QGtVKnO7RcGzM7vRX+Bi6hG6H
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '5d:56:49:9b:e4:d2:e0:8b:cf:ca:d0:8a:3e:38:72:3d:50:50:3b:de:70:69:48:e4:2f:55:60:30:19:e5:28:ae',
+    source: "https://www.identrust.com/sites/default/files/resources/IdenTrustCommercialRootCA_0.p7b (from https://www.identrust.com/support/downloads)",
+    notes: "C=US, O=IdenTrust, CN=IdenTrust Commercial Root CA 1; valid 2014-01-16 → 2034-01-16",
+  },
+  {
+    name: "IdenTrust Commercial Root Timestamp RSA CA 2",
+    category: 'international',
+    vendor: "IdenTrust",
+    usage: ["timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIFfDCCA2SgAwIBAgIQQAGT1rlLeUqTQEX1yZ/ABDANBgkqhkiG9w0BAQwFADBY
+MQswCQYDVQQGEwJVUzESMBAGA1UEChMJSWRlblRydXN0MTUwMwYDVQQDEyxJZGVu
+VHJ1c3QgQ29tbWVyY2lhbCBSb290IFRpbWVzdGFtcCBSU0EgQ0EgMjAeFw0yNDEy
+MTcyMjI0NDdaFw00NDEyMTIyMjI0NDZaMFgxCzAJBgNVBAYTAlVTMRIwEAYDVQQK
+EwlJZGVuVHJ1c3QxNTAzBgNVBAMTLElkZW5UcnVzdCBDb21tZXJjaWFsIFJvb3Qg
+VGltZXN0YW1wIFJTQSBDQSAyMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKC
+AgEAqaLICxoR40w6mqcslYZkl8/Qrr0aIAHEWGmaEKvdP8hK4Kj9Xw9fa/Ld0wxx
+jm8tCb1S/YgQc5R0iFTKZxiMaTifS16icfmJTwI9RsW27C95Bp3+j4yrE0JxzXQz
+nHbMbJAItJntzlNQzFAw8A+rOcZ3ooS8/UP+Ld4Uh/RmF8lodiXifdNIK+rN5FfY
+wkJ4bocqgFsY+o5WBlsi//UXuxH6/p5Os8EKx0VZ3VykP1ScFhBgZuzhLwLxJUiN
+Pxro2Y2Yw2FPgaDwM/LpUztYwa1Wi0UMPEHraKUX+UH13aGPQo3grBozNNgfW6FG
+PNz9IwVmlKRYcpjU3DOxHpjPq+mLcnvYZilmRQoj9AnJbFdaALoEsFO+2bnqFfsI
+vq4sXeo4TV0w8JYsOfT/ULHuXehtgQedfzsedRHpQsZ0TPk+8ezG8gzfaVGAZ9dF
+lx/FI7bz6SQe0gXi2/ECtzrHEbby2enYyVQkJSFDVTke3pDQgTZOMxMlCPmHTLMj
+ff1q7SMboiqZDkZ6k3V3affcjspoJ+PGs3Qi1qQs6Unn5vblcvHIzMVQ8dilLrEC
+4uSrWXFkm9Ra88C3sSss8pxtFaznLt8OESuQPqEZBS1UsVVKavQZHgUAoEsWqEXU
+r+HgyFy7wBHlKXLbYLn7Y6byGI+iuvjblXREL+hnDNdH490CAwEAAaNCMEAwDwYD
+VR0TAQH/BAUwAwEB/zAOBgNVHQ8BAf8EBAMCAYYwHQYDVR0OBBYEFKsFLMPvfRyQ
+0NyklYn+Tun9QeU7MA0GCSqGSIb3DQEBDAUAA4ICAQAcG5x1lT/oDXbWSDK9s0II
+5CRW1SNeXwIEk+XIIAfJBYHHSIzdQJP0CTSytdUfxHJFlGhPVzU9KEzsqhn9eViB
+5pPwm5B8842IyT5QI8dFfjjBEJcrUHqtgRNRIfTMTaeIv2fedI0e3/8tqUjHmxN3
+i8ZmlJcO7rvrLpn0DvoiByKF1eCqtVQHF3s8VRIgeTnc23ZZh0PtJ+aoBWM1EoQD
+HWxeSR4BwfHG9nZ73GIS/8siMEtzZsbko6VNmOYMP88RfsdkrWnq02DPFNy5fQWY
+CS+GAOx+vG35f3x40RcYgc6b5UQ3LRVErRimsAUXyyxhK5or0yFGbXBKbtKxpoGL
+KnSprrX0Tt6G5mZB7oYEk2AaZ8icBpUmkSgF+qYOADmgPe8OjjVaX9sB9LLl3nW4
+0nIXpTdbuuws/CxZOSUlk7b4W3ohqRZIVzNOrPUJL+m7mnlf1Jj/bD/dOPauVt9w
+ZJw1XItUuq7noxDHO5DqfFCLTpAEfKCji10ElBfT/eW3yvflJawLqAhBLFRTs840
+KVyDNd+CY+H9F1jsUglDKX69Q9C6NgM16XCa4PpYVVlsgLg6jzxgOqp52BT9ieqP
+yznRNfDYifMcpH9KZNKHsKX4y3V43ssxjuwOj2LR5gnRQKzPVQlZqgeWHLgicIB3
+VP5ubilsS+sgYroipkeCPg==
+-----END CERTIFICATE-----`,
+    expectedFingerprint: 'd3:09:93:17:36:c8:f5:aa:f3:c2:0a:da:97:fd:af:11:b5:e2:d7:fd:17:4d:c9:72:86:ac:d6:13:a4:0a:ea:55',
+    source: "https://www.identrust.com/sites/default/files/resources/identrusttimestamprsarootca2.p7b (from https://www.identrust.com/support/downloads)",
+    notes: "C=US, O=IdenTrust, CN=IdenTrust Commercial Root Timestamp RSA CA 2; valid 2024-12-17 → 2044-12-12",
+  },
+  {
+    name: "SSL.com Document Signing RSA Root CA 2022",
+    category: 'international',
+    vendor: "SSL.com",
+    usage: ["signing","timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIFozCCA4ugAwIBAgIQUNDVDa3dAX5V0WmQO9IfRjANBgkqhkiG9w0BAQsFADBb
+MQswCQYDVQQGEwJVUzEYMBYGA1UECgwPU1NMIENvcnBvcmF0aW9uMTIwMAYDVQQD
+DClTU0wuY29tIERvY3VtZW50IFNpZ25pbmcgUlNBIFJvb3QgQ0EgMjAyMjAeFw0y
+MjA4MjUxNjMzMThaFw00NjA4MTkxNjMzMTdaMFsxCzAJBgNVBAYTAlVTMRgwFgYD
+VQQKDA9TU0wgQ29ycG9yYXRpb24xMjAwBgNVBAMMKVNTTC5jb20gRG9jdW1lbnQg
+U2lnbmluZyBSU0EgUm9vdCBDQSAyMDIyMIICIjANBgkqhkiG9w0BAQEFAAOCAg8A
+MIICCgKCAgEAwzIJOxcnL09DUX76445xF0hw/xMf/UtM6pIrXCOEI7fNOCetJM3G
+JzcCSim1aHPE7RhOZRQ+52gDUvRNugEkt6lqhErQlxmSnOz5WJBkltgvVO6neTlX
+B+zXHlwmdskOOYfFzBqWEwtdLYVOYN/yqK0X0F0nHqQJXQuI/JHGyRgz1DLN1aGv
++4qF0bcYQWxABqUMjs86IcN/h65Top3USSM2AR7aZHaT3qgQmTrhNgjqYAE1DRWM
+DpamrFT+UK4voG+nqKWX07y0uzaZLK3wFCj/FXUixv99Su+0yH5BrQFZxvnK3lBE
+mvIz1Tm91dQDEBDPZuLQCW8E8VWKz9+j+KTbyEQQNCe17tym/AZFLypc9VpxtED/
+ZRRsBu3oMqm/m9/+1M0gorr6N2zyqrNhCGopUdfHfchhrplsMNfxeFlqaSASj8O1
+ARVxbOXulYzxYjsUQ/1sygho/LCV4BgaT4R3Vbuuj6ht5g8xsWAvJrI7slFotMYN
+wgK7nMj7e3XA5xZtUAsBC4FaD9EH+ZcchCpNE353UpSicRlCezBD+w19uLTYznag
+4RLugzfZbLddc7r72xKMcLmplR/7fpqoWvIL5SIxdQLzO3/fYumqWcvP3SPbBgB2
+QlWQKrsYpNj4QqrMN4QhiAic9TCF7M2KFQJrIKy/aRE6+Zivp3/ef0UCAwEAAaNj
+MGEwDwYDVR0TAQH/BAUwAwEB/zAfBgNVHSMEGDAWgBQExh55Yoya0KeEs3t3m7HA
+hvNIHzAdBgNVHQ4EFgQUBMYeeWKMmtCnhLN7d5uxwIbzSB8wDgYDVR0PAQH/BAQD
+AgGGMA0GCSqGSIb3DQEBCwUAA4ICAQCMklOEZM1dPacyJ2EZ9H6nIVrpKJsrXXZA
+ofxaAO3Vumj4RH1Um/gW1m0mA9vdKxQQygaesc1mGC8oI5VCN2kgeT1/nokekZy0
+GNdTG3ZlfwCSOZeeP1QbeM7dIzrxlPQiKEahk8L1aWztXHnrk2+RImMZSP5nesku
+jn+nE1wTLTDejqpCJaehzROpFQZCHgY8qiyqMWrDlyLnlDaXu4yPsR1N+pztvRa4
+U1h6Ci95EPi8SJ1D8ippoHqBPwG35rWY4GCObg7RBMBd/JeWcZOQP0fwDsdYItGm
+skgZ2b9kI/rglTwD9PnLKge9ZsL+XCB0XZ4u0U+9kVJOJypHPLmOlduyhLA7vx2v
+F0CTppkqaWjoEH6D8WQoROrK/n48wVGTCJ1rxpOOCus4MvJ/ztQ8PwHBkugF6SuO
+lmpVOi6PzBUP9AZ7uc+8J6W4bMQ/Yoej/NOpUkZUKdeHW+2Y4BHDH33ovCDTFkc/
+nLUK4tExzR3tnF4QM3mNtd5V+3oeeBHq/4pUAe0jS7QN4+/NPlLGESr+HA+tv5U2
+OH9lsddqQYfpaXQM7Tt9/TQVsW+hC3rldwq7zzSxv4yVukl88Yw2fv0JBdF8A3AE
+q9/v2g9hdaXeZMvowao4zvBv1Im0sh5o/FMwNQRJyCrCaE/J0s7HmfAkuBOx/i3/
+lA62O9pgAg==
+-----END CERTIFICATE-----`,
+    expectedFingerprint: 'e8:07:d4:9a:85:9a:bb:c8:61:c7:2c:a9:07:d4:43:ad:0f:e8:7e:ab:9d:99:b9:13:f2:cb:5b:4a:ad:ab:e6:41',
+    source: "https://repo-certs.ssl.com/repo/certs/SSLcom-DocumentSigning-Root-2022-RSA.der (from https://www.ssl.com/repository/)",
+    notes: "C=US, O=SSL Corporation, CN=SSL.com Document Signing RSA Root CA 2022; valid 2022-08-25 → 2046-08-19",
+  },
+  {
+    name: "SSL.com Document Signing ECC Root CA 2022",
+    category: 'international',
+    vendor: "SSL.com",
+    usage: ["signing","timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIICVTCCAdqgAwIBAgIQWoi1lhkiJOVqkMoLutg6KzAKBggqhkjOPQQDAzBbMQsw
+CQYDVQQGEwJVUzEYMBYGA1UECgwPU1NMIENvcnBvcmF0aW9uMTIwMAYDVQQDDClT
+U0wuY29tIERvY3VtZW50IFNpZ25pbmcgRUNDIFJvb3QgQ0EgMjAyMjAeFw0yMjA4
+MjUxNjMyNDRaFw00NjA4MTkxNjMyNDNaMFsxCzAJBgNVBAYTAlVTMRgwFgYDVQQK
+DA9TU0wgQ29ycG9yYXRpb24xMjAwBgNVBAMMKVNTTC5jb20gRG9jdW1lbnQgU2ln
+bmluZyBFQ0MgUm9vdCBDQSAyMDIyMHYwEAYHKoZIzj0CAQYFK4EEACIDYgAE5CEG
+sN4fEKXIsjo96FpRlkiFk8lKjmL/4JZ7ja26hQmOntNowtcZLiq1kGaeYMbNsXWQ
+A2vTdlEfS5/5WkWTdnFwvnl/I4cjT4KHCz3sqSgi9RoEGjt98NpnZdd7TW0ao2Mw
+YTAPBgNVHRMBAf8EBTADAQH/MB8GA1UdIwQYMBaAFDL71ZvLbZz9ga4TfdoMwzT1
+Ok01MB0GA1UdDgQWBBQy+9Wby22c/YGuE33aDMM09TpNNTAOBgNVHQ8BAf8EBAMC
+AYYwCgYIKoZIzj0EAwMDaQAwZgIxAIzDPQCFYIsBxIGs7HIYfqEuLvObPWKiitUA
+RZgni3vt8H/zPxWGVS57mfUE27YpOAIxAMHZ+IkqBGxVbAw6Gd1eCmGRqedchl0P
+PPRiM3Ny9QpRMhWzfU3kzAeTSoQiuTx6GA==
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '5e:ce:6a:b2:71:31:fb:58:a8:87:e9:41:77:d5:5b:d9:e5:1a:aa:2d:ed:6c:08:1b:54:a3:9b:e3:cb:84:e1:f1',
+    source: "https://repo-certs.ssl.com/repo/certs/SSLcom-DocumentSigning-Root-2022-ECC.der (from https://www.ssl.com/repository/)",
+    notes: "C=US, O=SSL Corporation, CN=SSL.com Document Signing ECC Root CA 2022; valid 2022-08-25 → 2046-08-19",
+  },
+  {
+    name: "SSL.com Root Certification Authority RSA",
+    category: 'international',
+    vendor: "SSL.com",
+    usage: ["timestamping"],
+    pem: `-----BEGIN CERTIFICATE-----
+MIIF3TCCA8WgAwIBAgIIeyyb0xaAMpkwDQYJKoZIhvcNAQELBQAwfDELMAkGA1UE
+BhMCVVMxDjAMBgNVBAgMBVRleGFzMRAwDgYDVQQHDAdIb3VzdG9uMRgwFgYDVQQK
+DA9TU0wgQ29ycG9yYXRpb24xMTAvBgNVBAMMKFNTTC5jb20gUm9vdCBDZXJ0aWZp
+Y2F0aW9uIEF1dGhvcml0eSBSU0EwHhcNMTYwMjEyMTczOTM5WhcNNDEwMjEyMTcz
+OTM5WjB8MQswCQYDVQQGEwJVUzEOMAwGA1UECAwFVGV4YXMxEDAOBgNVBAcMB0hv
+dXN0b24xGDAWBgNVBAoMD1NTTCBDb3Jwb3JhdGlvbjExMC8GA1UEAwwoU1NMLmNv
+bSBSb290IENlcnRpZmljYXRpb24gQXV0aG9yaXR5IFJTQTCCAiIwDQYJKoZIhvcN
+AQEBBQADggIPADCCAgoCggIBAPkP3aMrfcvQKv7sZ4Wm5y4bunfh4/WvpOz6Sl2R
+xFdHaxh3a3by/ZPkPQ/CFp4LZsNWlJ4Xg4XOVu/yFv0AYvUiCVToZRdOQbngT0aX
+qhvIuG5iXmmxX9sqAn78bMrzQdjt0Oj8P2FI7bADFB0QDksZ4LtO7IZl/zbzXmcC
+C52GVWH9ejjt/uIZALdvoVBidXQ8oPrIJZK0bnoix/geoeOy3ZExqysdBP+lSgQ3
+6YWkMyv94tZVNHwZpEpox7Ko07fKoZOI68GXvIz5HdkihCR0xwQ9aqkpk8zruFvh
+/l8lqjRYyMEjVJ0bmBHDOJx+PYZspQ9AhnwC9FwCTyjLrnGfDzrIM/4RJTXq/LrF
+YD3ZfBjVsqnTdXgDciLKOsMf7yzlLqn6niy2UUb9rwPW6mBo6oUWNmuF6R7As93E
+JNyAKoFBbZQ+yODJgUEAnl6/f8UImKIYLEJAs/lvOCdLToD0PYFH4Ih86hzOtXVc
+US4cK38acijnALXRdMbX5J+tB5O2UzU1/Dfkw/ZdFr4hc96SCvigY2q8lpJqPvi8
+ZVWb3vUNiSYE/CUapiVpy8JtynziWV+XrOvvLsi81xtZPCvM8hnIk2snYxnP/Okm
++Mpxm3+T/jRnhE6Z6/yzeAkzcLpmpnbtG3PrGqUNxCITIJRWCk4sbE6x/c+cCbqi
+M+2HAgMBAAGjYzBhMB0GA1UdDgQWBBTdBAkHovV6fVJTEpKV7jiAJQ2mWTAPBgNV
+HRMBAf8EBTADAQH/MB8GA1UdIwQYMBaAFN0ECQei9Xp9UlMSkpXuOIAlDaZZMA4G
+A1UdDwEB/wQEAwIBhjANBgkqhkiG9w0BAQsFAAOCAgEAIBgRlCn7Jp0cHh5wYfGV
+cpNxJK1ok1iOMq8bs3AD/CUrdIWQPXhq9LmLpZc7tRiRux6n+UBbkflVma8eEdBc
+Hadm47GUBwwyOabqG7B52B2ccETjit3E+ZUfijhDPwGFpUenPUayvOUiaPd7nNgs
+PgohyC0zrL/FgZkxdMF1ccW+sfAjRfSda/wZY52jvATGGAslu1OJD7OAUN5F7kR/
+q5R4ZJjT9ijdh9hwZXT7DrkT66cPYakylszeu+1jTBi7qUD3oFRuIIhxdRjqerQ0
+cuAjJ3dctpDqhiVAq+8zD8ufgr6iIPv2tS0a5sKFsXQP+8hlAqRSAUfdSSLBv9jr
+a6x+3uxjMxW3IwiPxg+NQVrdjsW5j+VFP3jbutIbQLH+cU0/4IGiul607BXgk90I
+H37hVZkLId6Tngr75qNJvTYw/ud3sqB1l7UtgYgXZSD32pAAn8lSzDLKNXz1PQ/Y
+K9f1JmzJBjSWFupwWRoyeXkLtoh/D1JIPb9s2KJELtFOt3JY04kTlf5Eq/jXixtu
+nLwsoFvVagCvXzfh1foQC5ichucmj87w7G6KVwuA406ywKBjYZC6VWg3dGq2ktuf
+oYYitmUnDuy2n0Jg5GfCtdpBC8TTi2EbvPofkSvXRAdeuims2cXp71NIWuuA8ShY
+Ic2wBlX7Jz9TkHCpBB5XJ7k=
+-----END CERTIFICATE-----`,
+    expectedFingerprint: '85:66:6a:56:2e:e0:be:5c:e9:25:c1:d8:89:0a:6f:76:a8:7e:c1:6d:4d:7d:5f:29:ea:74:19:cf:20:12:3b:69',
+    source: "https://repo-certs.ssl.com/repo/certs/SSLcomRootCertificationAuthorityRSA.der (from https://www.ssl.com/repository/)",
+    notes: "C=US, ST=Texas, L=Houston, O=SSL Corporation, CN=SSL.com Root Certification Authority RSA; valid 2016-02-12 → 2041-02-12",
   },
 ]
 

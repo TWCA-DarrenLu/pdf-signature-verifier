@@ -6,6 +6,8 @@ export interface Settings {
   autoVerify: boolean
   autoVerifyScope: AutoVerifyScope
   autoVerifySites: string[]
+  /** Also trust the selected international CAs / TSAs (default: Taiwan only). */
+  trustInternational: boolean
   checkOnlineRevocation: boolean
   language: 'zh-TW' | 'en'
 }
@@ -14,6 +16,7 @@ const DEFAULT_SETTINGS: Settings = {
   autoVerify: true,
   autoVerifyScope: 'all',
   autoVerifySites: [],
+  trustInternational: false,
   checkOnlineRevocation: false,
   language: 'zh-TW',
 }

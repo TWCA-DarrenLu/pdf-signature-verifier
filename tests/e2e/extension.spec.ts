@@ -303,3 +303,25 @@ test('autoVerify off (settings saved by earlier versions) → waits for a click'
     await setSettings({ autoVerifyScope: 'all', autoVerifySites: [] })
   }
 })
+
+test('international CAs: off by default, labelled when turned on', async () => {
+  test.setTimeout(180_000)
+  try {
+    // default: the DocuSign (DigiCert) signature is not trusted, the TWCA one is labelled licensed
+    const off = await openPdf('expired-hsm-and-foreign-ca.pdf')
+    expect(await finalState(off)).toBe('unknown')
+    const offPanel = off.frameLocator('#pdf-verifier-panel-overlay iframe')
+    await expect(offPanel.getByTestId('signature-regulation').first()).toContainText('TWCA')
+    await off.close()
+
+    await setSettings({ autoVerifyScope: 'all', autoVerifySites: [], trustInternational: true })
+    const on = await openPdf('expired-hsm-and-foreign-ca.pdf')
+    expect(await finalState(on)).toBe('trusted')
+    const onPanel = on.frameLocator('#pdf-verifier-panel-overlay iframe')
+    await expect(onPanel.getByTestId('signature-regulation')).toHaveCount(2)
+    await expect(onPanel.getByTestId('signature-regulation').nth(1)).toContainText('DigiCert')
+    await on.close()
+  } finally {
+    await setSettings({ autoVerifyScope: 'all', autoVerifySites: [] })
+  }
+})

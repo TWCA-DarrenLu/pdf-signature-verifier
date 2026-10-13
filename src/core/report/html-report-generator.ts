@@ -154,6 +154,7 @@ function renderSignature(sig: SignatureResult, index: number): string {
           </tr>
           ${sig.reason ? `<tr><td style="padding:4px 0;color:#6b7280;">${t('report.signReason')}</td><td style="padding:4px 0;">${escapeHtml(sig.reason)}</td></tr>` : ''}
           ${sig.location ? `<tr><td style="padding:4px 0;color:#6b7280;">${t('report.signLocation')}</td><td style="padding:4px 0;">${escapeHtml(sig.location)}</td></tr>` : ''}
+          ${sig.rootCategory ? `<tr><td style="padding:4px 0;color:#6b7280;">${t('report.regulation')}</td><td style="padding:4px 0;">${escapeHtml(t(sig.rootCategory === 'international' ? 'report.esaNotLicensed' : 'report.esaLicensed', { vendor: sig.rootVendor ?? '' }))}</td></tr>` : ''}
         </table>
       </div>
 

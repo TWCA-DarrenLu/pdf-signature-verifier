@@ -76,6 +76,13 @@ export function SignatureCard({ signature }: SignatureCardProps) {
           .slice(0, 2)
           .map(([key, check]) => `${reasonLabels[key]}：${resolveCheck(check!).message}`)
 
+  // Regulatory status of the trusted root (shown after the chain is verified)
+  const regulation = signature.rootCategory
+    ? signature.rootCategory === 'international'
+      ? { licensed: false, text: t('signature.esaNotLicensed', { vendor: signature.rootVendor ?? '' }) }
+      : { licensed: true, text: t('signature.esaLicensed', { vendor: signature.rootVendor ?? '' }) }
+    : null
+
   const validationBasis = signature.validationTimeSource
     ? signature.validationTimeSource === 'timestamp' && signature.validationTime
       ? t('signature.validationByTimestamp', { time: formatDate(signature.validationTime) })
@@ -145,6 +152,11 @@ export function SignatureCard({ signature }: SignatureCardProps) {
             <div className="text-gray-600">
               <span className="text-gray-500">{t('signature.validationBasis')}</span>
               {validationBasis}
+            </div>
+          )}
+          {regulation && (
+            <div className={regulation.licensed ? 'text-green-700' : 'text-slate-600'} data-testid="signature-regulation">
+              {regulation.text}
             </div>
           )}
           {reasons.length > 0 && (

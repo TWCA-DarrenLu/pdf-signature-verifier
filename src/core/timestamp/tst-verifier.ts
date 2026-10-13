@@ -14,7 +14,8 @@ import {
 } from '../crypto/pki-verify'
 import { ensurePkijsEngine } from '../crypto/pkijs-engine'
 import { t } from '@/i18n'
-import { isTsaTrustStoreEmpty } from '@/trust-store/trust-manager'
+import { isTsaTrustStoreEmpty, getAnchorCategory, getAnchorVendor } from '@/trust-store/trust-manager'
+import type { CertificateChain as Chain } from '@/types'
 
 const { ContentInfo, SignedData, Certificate } = pkijs
 
@@ -56,6 +57,8 @@ export interface TimestampVerifyOptions {
   extraCertBytes?: Uint8Array[]
   /** Fetch missing TSA issuers via AIA. Default true. */
   fetchMissing?: boolean
+  /** Also trust the selected international TSA roots (user option). Default false. */
+  trustInternational?: boolean
 }
 
 export interface TimestampVerifyResult {
@@ -180,13 +183,32 @@ export async function verifyTimestamp(
       anchorStore: 'tsa',
       fetchMissing: options.fetchMissing ?? true,
       additionalCertBytes: options.extraCertBytes ?? [],
+      trustInternational: options.trustInternational === true,
     })
     if (!tsaChain.isTrusted) {
       const empty = isTsaTrustStoreEmpty()
+      // would a bundled international TSA root anchor it? (international option off)
+      let intlVendor: string | null = null
+      if (options.trustInternational !== true) {
+        const alternative: Chain = await buildCertificateChain(tsaCert, otherCerts, {
+          anchorStore: 'tsa',
+          fetchMissing: options.fetchMissing ?? true,
+          additionalCertBytes: options.extraCertBytes ?? [],
+          trustInternational: true,
+        })
+        if (alternative.isTrusted && alternative.root && getAnchorCategory(alternative.root) === 'international') {
+          intlVendor = getAnchorVendor(alternative.root) ?? tsaName
+        }
+      }
+      const detailsKey = empty
+        ? 'core.timestampVerifier.tsaTrustStoreEmpty'
+        : intlVendor
+          ? 'core.timestampVerifier.tsaInternationalNotEnabled'
+          : 'core.timestampVerifier.tsaUntrustedDetails'
       const result = failed('tsaUntrusted', untrustedInfo, 'core.timestampVerifier.tsaUntrusted', {
         params: { tsa: tsaName },
-        detailsKey: empty ? 'core.timestampVerifier.tsaTrustStoreEmpty' : 'core.timestampVerifier.tsaUntrustedDetails',
-        detailsParams: empty ? undefined : { tsa: tsaName },
+        detailsKey,
+        detailsParams: empty ? undefined : { tsa: tsaName, vendor: intlVendor ?? '' },
       })
       return { ...result, tsaChain }
     }

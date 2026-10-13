@@ -38,7 +38,9 @@
     "reasons": "主要原因：",
     "validationBasis": "驗證時間依據：",
     "validationByTimestamp": "時戳時間 {time}",
-    "validationByCurrent": "目前時間（無可信時戳）"
+    "validationByCurrent": "目前時間（無可信時戳）",
+    "esaLicensed": "電子簽章法：許可之憑證機構（{vendor}）",
+    "esaNotLicensed": "電子簽章法：非我國許可之憑證機構（國際：{vendor}）"
   },
   "checks": {
     "title": "驗證詳情",
@@ -101,7 +103,9 @@
     "scopeAll": "所有網站",
     "scopeListed": "僅指定網站",
     "scopeOff": "關閉",
-    "sitesPlaceholder": "一行一個網域，例如 twca.com.tw（含子網域）"
+    "sitesPlaceholder": "一行一個網域，例如 twca.com.tw（含子網域）",
+    "trustInternational": "信任國際精選憑證機構",
+    "trustInternationalHint": "{vendors}。國際憑證會標示為非我國許可之憑證機構"
   },
   "export": {
     "title": "匯出驗證報告 PDF",
@@ -185,7 +189,12 @@
       "rootNotInStore": "根 CA「{name}」未列入信任清單",
       "storeEmpty": "信任清單為空 — 尚未載入任何 root CA，所有簽章預設視為不可信",
       "selfSignedNotSupported": "簽署者憑證為自簽憑證，本工具不支援",
-      "trusted": "已鏈結至信任的台灣根憑證"
+      "trusted": "已鏈結至信任的台灣根憑證",
+      "internationalNotEnabled": "國際憑證機構（未開啟）",
+      "internationalNotEnabledDetails": "根憑證「{name}」屬國際憑證機構 {vendor}。預設只信任台灣憑證，可在設定開啟「信任國際精選憑證機構」",
+      "trustedInternational": "已鏈結至信任的國際根憑證（{vendor}）",
+      "internationalPurpose": "國際憑證機構：憑證未標示文件簽章用途",
+      "internationalPurposeDetails": "國際憑證機構（{vendor}）簽發的簽署者憑證，須標示文件簽章用途（Adobe 文件信任、文件簽章或電子郵件保護）才接受"
     },
     "timestamp": {
       "verified": "時戳已驗證",
@@ -326,7 +335,8 @@
       "tsaCertNotValidAtTime": "時戳時間不在 TSA「{tsa}」憑證有效期間內",
       "unsupportedAlgorithm": "時戳使用不支援的演算法",
       "tsaRevoked": "TSA「{tsa}」的憑證在時戳時間之前已被撤銷",
-      "tsaRevocationUnknown": "無法確認 TSA「{tsa}」憑證的撤銷狀態，時戳時間不予採用"
+      "tsaRevocationUnknown": "無法確認 TSA「{tsa}」憑證的撤銷狀態，時戳時間不予採用",
+      "tsaInternationalNotEnabled": "時戳單位「{tsa}」屬國際憑證機構 {vendor}。預設只信任台灣時戳，可在設定開啟「信任國際精選憑證機構」"
     },
     "misc": {
       "pdfDownloadFailed": "PDF 下載失敗: {status}",
@@ -381,11 +391,15 @@
     "statusFailed": "驗證失敗",
     "statusUnknown": "無法完整驗證",
     "reportGenTime": "報告產生時間：{time}",
-    "reportGenBy": "由 PDFtrust 產生"
+    "reportGenBy": "由 PDFtrust 產生",
+    "regulation": "電子簽章法",
+    "esaLicensed": "許可之憑證機構（{vendor}）",
+    "esaNotLicensed": "非我國許可之憑證機構（國際：{vendor}）"
   },
   "trust": {
     "government": "公部門",
-    "private": "民間"
+    "private": "民間",
+    "international": "國際"
   },
   "contextMenu": {
     "verifyLink": "驗證此 PDF 的數位簽章"

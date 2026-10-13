@@ -16,13 +16,18 @@
  */
 import { GENERATED_ROOTS, GENERATED_INTERMEDIATES } from './generated-anchors'
 
-export type TrustCategory = 'government' | 'private'
+export type TrustCategory = 'government' | 'private' | 'international'
+export type TrustUsage = 'signing' | 'timestamping'
 
 export interface TrustAnchorEntry {
   /** Human-readable name (used in UI and report) */
   name: string
-  /** Government (GPKI) or private (commercial) CA */
+  /** Taiwan government (GPKI), Taiwan private (commercial) or international CA */
   category: TrustCategory
+  /** International CAs: vendor shown to the user (e.g. DigiCert). */
+  vendor?: string
+  /** International CAs: hierarchies this root anchors. Taiwan roots anchor both. */
+  usage?: TrustUsage[]
   /** PEM-encoded X.509 certificate. Empty string = not yet populated. */
   pem: string
   /** SHA-256 fingerprint of the DER. Lowercase hex, colon-separated. */
@@ -33,7 +38,9 @@ export interface TrustAnchorEntry {
   notes?: string
 }
 
-export const TAIWAN_ROOT_CERTIFICATES: TrustAnchorEntry[] = GENERATED_ROOTS
+export const TAIWAN_ROOT_CERTIFICATES: TrustAnchorEntry[] = GENERATED_ROOTS.filter(
+  (entry) => entry.category !== 'international'
+)
 
 export const TAIWAN_INTERMEDIATE_CERTIFICATES: TrustAnchorEntry[] = GENERATED_INTERMEDIATES
 

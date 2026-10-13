@@ -6,7 +6,8 @@ export {
   hasAnyEmbeddedPem,
   getPopulatedEntries,
 } from './taiwan-roots'
-export type { TrustAnchorEntry, TrustCategory } from './taiwan-roots'
+export type { TrustAnchorEntry, TrustCategory, TrustUsage } from './taiwan-roots'
+export { INTERNATIONAL_ROOT_CERTIFICATES, getInternationalVendors } from './international-roots'
 
 export {
   TAIWAN_TSA_ROOT_CERTIFICATES,
@@ -19,6 +20,8 @@ export {
   getTrustAnchors,
   getTsaTrustAnchors,
   getKnownIntermediates,
+  getKnownRoots,
+  getAnchorVendor,
   isTrustAnchor,
   isTsaTrustAnchor,
   findTrustAnchor,
