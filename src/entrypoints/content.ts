@@ -73,8 +73,9 @@ let panelContainer: HTMLDivElement | null = null
 let pendingResult: unknown = null
 
 function isChromeBrowser(): boolean {
-  // Chrome: has "Chrome/" but NOT "Edg/" (Edge) and NOT "brave" in navigator
-  return /\bChrome\//i.test(navigator.userAgent)
+  // Chrome (incl. "HeadlessChrome" used by automated tests): has "Chrome/" but
+  // NOT "Edg/" (Edge) and NOT "brave" in navigator
+  return /Chrome\//i.test(navigator.userAgent)
     && !/\bEdg\//i.test(navigator.userAgent)
     && !('brave' in navigator)
 }
