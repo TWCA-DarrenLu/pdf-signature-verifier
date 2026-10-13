@@ -2,14 +2,13 @@
 
 A browser extension that verifies digital signatures in PDF documents, with built-in support for Taiwan's PKI infrastructure (TWCA, GCA, MOICA root certificates).
 
-> **Trust store status** — `src/trust-store/taiwan-roots.ts` and
-> `src/trust-store/taiwan-tsa-roots.ts` ship with the *structure* of the Taiwan
-> root anchors but **the PEM bodies are intentionally empty**. Until a
-> maintainer pastes verified PEMs (cross-checked against the published
-> SHA-256 fingerprints already listed in those files), every signature
-> reports `Trust: FAIL — trust store is empty`. This is the correct
-> fail-closed behaviour after the trust-mechanism rewrite — the previous
-> "any self-signed root passes" behaviour was a CVE-class security bug.
+> **Trust policy** — by default only Taiwan PKI roots are trusted (government
+> GRCA G1/G2/G3; private TWCA and Chunghwa Telecom roots). Every anchor is pinned
+> by SHA-256 (`scripts/trust-store/manifest.json`). Self-signed signer
+> certificates are always rejected, and a signature is reported as *trusted*
+> only when integrity, the certification path, validity, revocation and (if
+> present) the timestamp are all proven. Versions up to 1.0.3 shipped an empty
+> trust store and accepted any self-signed root.
 
 ## Features
 
@@ -102,6 +101,13 @@ npm run test:coverage   # With coverage report
 npm run test:e2e        # End-to-end browser tests
 ```
 
+Real signed PDFs go in `PDF_Sample/` (gitignored). With samples present,
+`tests/unit/verify-sample-pdfs.test.ts` runs offline end-to-end checks, and the
+Playwright suite (`npm run build` first, then
+`npx playwright test --project=chromium --reporter=list`) loads the built
+extension into Chromium and verifies PDFs opened over HTTP. A per-check report
+is available with `PDF_SAMPLE_REPORT=1 npx vitest run tests/samples`.
+
 ## Architecture
 
 ```
@@ -160,23 +166,73 @@ For each signature found in a PDF:
 3. **Parse PKCS#7** -- decode the CMS SignedData structure (certificates, signer info, timestamps)
 4. **Verify integrity** -- compute and compare message digest, then verify cryptographic signature
 5. **Build certificate chain** -- from signer certificate through intermediates to root CA
-6. **Check trust root** -- verify chain terminates at a known, trusted root certificate
+6. **Check trust root** -- every link signature-verified up to a pinned Taiwan root; self-signed signers rejected
 7. **Verify timestamp** -- validate RFC 3161 embedded timestamp (imprint = hash of signature value)
-8. **Check validity** -- ensure certificates were valid at signing time (LTV fallback for expired)
-9. **Check revocation** -- embedded OCSP/CRL and online queries in parallel, auto-fallback
+8. **Check validity** -- certificates valid at the trusted timestamp time (or now, without one)
+9. **Check revocation** -- only signature-verified OCSP/CRL: embedded first, then online (unexpired certs only)
 10. **Assess LTV** -- verify Long-Term Validation data is complete for archival trust
 
 ### Taiwan PKI Trust Roots
 
-The extension includes trust anchors for Taiwan's national PKI:
+Trust anchors (self-signed roots, pinned by SHA-256):
 
-| Root CA | Issuer | Purpose |
-|---------|--------|---------|
-| **TWCA** | Taiwan-CA Inc. | Commercial digital certificates |
-| **GCA** | Government Root CA | Government PKI infrastructure |
-| **MOICA** | Ministry of Interior | Citizen digital certificate (Natural Person Certificate) |
+| Category | Roots | Typical certificates |
+|---|---|---|
+| Government | GRCA G1, GRCA G2, GRCA G3 | MOICA (自然人), MOEACA (工商), XCA (組織及團體), GCA (政府機關) |
+| Private | TWCA Root CA (SHA-1 and SHA-256), TWCA Global Root CA, TWCA CYBER Root CA, TWCA Information XML Plus Root CA | TWCA document signing, MyTWES, IXML, TWCA TSA |
+| Private | Chunghwa Telecom ePKI Root CA, ePKI Root CA - G2, HiPKI Root CA - G1 | Chunghwa Telecom certificates |
 
-Root certificates are managed in `src/trust-store/taiwan-roots.ts` and loaded by `trust-manager.ts`.
+The same roots anchor RFC 3161 timestamps; a TSA certificate must also carry
+the `timeStamping` extended key usage. Known government intermediates (MOICA G2,
+MOEACA G2/G3, XCA G2/G3, GCA G2/G3) are bundled for offline path building but
+are **not** anchors.
+
+Sources and fingerprints: `scripts/trust-store/manifest.json` (Mozilla CCADB,
+Microsoft Trusted Root Program, the TWCA repository, grca.nat.gov.tw and the
+GPKI CA repositories). A root is only added when an official source publishes
+it. Foreign TSAs (e.g. for AATL documents) are not trusted by default.
+To change the store, update the manifest and DER files, then run
+`node scripts/trust-store/build-trust-store.mjs` — it refuses to write unless
+every fingerprint matches, every root self-verifies and every intermediate is
+signed by a listed root.
+
+### Status rules
+
+| Status | When |
+|---|---|
+| failed | integrity broken, self-signed signer, signer certificate not meant for signing (CA / keyUsage / EKU), revoked certificate, DocMDP violation, timestamp imprint/signature invalid, TSA revoked before the timestamp |
+| unknown | path not trusted, validity not established, revocation of any path certificate not proven, TSA not trusted or its revocation not proven, unsupported algorithm, changes after signing not permitted (no DocMDP) or not analysable |
+| trusted | everything above proven |
+
+Validation time is the trusted timestamp when present, otherwise *now*. A
+timestamp is only trusted when the TSA path is also proven unrevoked. An
+expired signer certificate therefore needs a trusted timestamp **and** embedded
+(LTV) revocation evidence. Online OCSP/CRL is not used for expired certificates.
+OCSP responses must be signed by the CA or an authorized responder; CRLs must
+be signed by the issuer and cover the certificate (IssuingDistributionPoint
+partitions are matched against the certificate's CRL distribution points;
+delta and indirect CRLs are not used).
+
+### Changes after signing
+
+For every signature the signed revision and the final document are rebuilt
+from their cross-reference data (classic tables, xref streams, object streams)
+and compared object by object (`src/core/pdf/incremental-update.ts`). Changes
+that cannot affect rendering (DSS / VRI / XMP / Info) are always accepted;
+anything reachable from the page tree must be permitted by DocMDP:
+P1 → document timestamps only, P2 or no DocMDP → signature fields, P3 →
+also annotations. A violation fails a certified document and makes an
+approval-only document *unknown*.
+
+### Known limitations
+
+- Encrypted PDFs: streams cannot be decrypted, so embedded revocation data and
+  object streams may be unreadable — such documents end up *unknown*.
+- FieldMDP locks are not enforced; a permitted new signature widget's
+  appearance can still overlay page content (as in other validators).
+- SHA-1 digests are still accepted for legacy Taiwan documents.
+- Documents that embed revocation data for the signer path but not for the
+  TSA verify as *trusted* online and *unknown* offline.
 
 ## Tech Stack
 

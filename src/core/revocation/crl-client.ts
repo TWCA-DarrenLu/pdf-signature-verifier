@@ -1,7 +1,8 @@
 import * as asn1js from 'asn1js'
 import * as pkijs from 'pkijs'
-import type { ParsedCertificate, RevocationResult, RevocationReason, CrlInfo } from '@/types'
+import type { ParsedCertificate, RevocationResult, CrlInfo } from '@/types'
 import { t } from '@/i18n'
+import { toArrayBuffer } from '../bytes'
 
 const { CertificateRevocationList } = pkijs
 
@@ -49,7 +50,7 @@ export async function checkCrlStatus(
 async function queryCrl(
   url: string,
   certificate: ParsedCertificate,
-  issuerCertificate: ParsedCertificate
+  _issuerCertificate: ParsedCertificate
 ): Promise<RevocationResult> {
   // Fetch CRL via background script
   const crlData = await fetchCrl(url)
@@ -122,7 +123,7 @@ async function fetchCrl(url: string): Promise<Uint8Array | null> {
  * Parse CRL data
  */
 export function parseCrl(data: Uint8Array): CrlInfo {
-  const asn1 = asn1js.fromBER(data.buffer)
+  const asn1 = asn1js.fromBER(toArrayBuffer(data))
   if (asn1.offset === -1) {
     throw new Error('Failed to parse CRL ASN.1')
   }

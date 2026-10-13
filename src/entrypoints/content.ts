@@ -240,7 +240,8 @@ function detectEmbeddedPdfs() {
 
 // ─── Message Helpers ─────────────────────────────────────────────
 
-const VERIFY_TIMEOUT_MS = 30_000
+// Path building, OCSP/CRL and AIA fetches can take a while on slow networks.
+const VERIFY_TIMEOUT_MS = 90_000
 
 function isRemoteUrl(url: string): boolean {
   return url.startsWith('http://') || url.startsWith('https://')
@@ -390,6 +391,7 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
 
       if (!result || result.error) {
         button.innerHTML = `${svgX()} ${t('content.failed')}`
+        button.dataset.pdfVerifierState = 'error'
         button.title = result?.error || t('content.noResponse')
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
@@ -397,6 +399,7 @@ function createVerifyButton(link: HTMLAnchorElement): HTMLButtonElement {
       }
     } catch (error) {
       button.innerHTML = `${svgX()} ${t('content.error')}`
+      button.dataset.pdfVerifierState = 'error'
       button.title = error instanceof Error ? error.message : t('content.unknownError')
     }
 
@@ -454,6 +457,7 @@ function createEmbedVerifyButton(embed: HTMLEmbedElement): HTMLButtonElement {
       }
     } catch {
       button.innerHTML = `${svgX()} ${t('content.error')}`
+      button.dataset.pdfVerifierState = 'error'
     }
 
     button.disabled = false
@@ -581,6 +585,7 @@ function injectPdfViewerButton() {
 
       if (!result || result.error) {
         button.innerHTML = `${svgX()} ${t('content.failed')}`
+        button.dataset.pdfVerifierState = 'error'
         button.title = result?.error || t('content.noResponse')
       } else {
         updateButtonWithResult(button, result.result as VerifyResult)
@@ -588,6 +593,7 @@ function injectPdfViewerButton() {
       }
     } catch (error) {
       button.innerHTML = `${svgX()} ${t('content.error')}`
+      button.dataset.pdfVerifierState = 'error'
       button.title = error instanceof Error ? error.message : t('content.unknownError')
     }
 
@@ -635,6 +641,7 @@ function updateButtonWithResult(
   result: VerifyResult
 ) {
   const status = result?.status
+  button.dataset.pdfVerifierState = status === 'trusted' || status === 'failed' ? status : 'unknown'
   if (status === 'trusted') {
     button.innerHTML = `${svgCheck()} ${t('content.trusted')}`
     button.style.background = '#22c55e'

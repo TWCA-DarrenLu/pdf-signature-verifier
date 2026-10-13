@@ -4,7 +4,6 @@ import type {
   TimestampInfo,
   CheckResult,
   LtvInfo,
-  CrlInfo,
   LtvLevel,
 } from '@/types'
 import { createPassedCheck, createFailedCheck } from '@/types'
@@ -58,6 +57,14 @@ export interface LtvOptions {
    * Pass an array of booleans, one per archive TST in chronological order.
    */
   archiveTimestampsHaveLtv?: boolean[]
+  /**
+   * Per-certificate LTV coverage computed from CRYPTOGRAPHICALLY VALIDATED
+   * embedded revocation data (see revocation-checker.ts), keyed by display
+   * name. When provided it replaces the legacy serial-number-only check.
+   * Must list every certificate that needs revocation data (signer chain and
+   * TSA chain, trust anchors excluded).
+   */
+  revocationCoverage?: Array<{ name: string; covered: boolean }>
 }
 
 export function checkLtvCompleteness(
@@ -68,7 +75,14 @@ export function checkLtvCompleteness(
 ): LtvCheckResult {
   const stats = getEmbeddedRevocationStats(embeddedInfo)
   const validityWindow = getRevocationInfoValidity(embeddedInfo)
-  const completeness = isLtvComplete(chain, embeddedInfo)
+  const completeness = options.revocationCoverage
+    ? {
+        complete: options.revocationCoverage.every((c) => c.covered),
+        missing: options.revocationCoverage
+          .filter((c) => !c.covered)
+          .map((c) => t('core.revocation.missingRevocationInfo', { name: c.name })),
+      }
+    : isLtvComplete(chain, embeddedInfo)
 
   const hasLtv = stats.hasOcsp || stats.hasCrl
   const hasTimestamp = timestampInfo !== null && timestampInfo.isValid

@@ -1,0 +1,133 @@
+{
+  "$comment": "Taiwan PKI trust material. sha256 = SHA-256 of the DER file in certs/, uppercase hex. Re-verify against the listed sources before changing anything here, then run: node scripts/trust-store/build-trust-store.mjs",
+  "roots": [
+    {
+      "file": "grca-g1.cer",
+      "name": "Government Root Certification Authority (GRCA G1)",
+      "category": "government",
+      "sha256": "7600295EEFE85B9E1FD624DB76062AAAAE59818A54D2774CD4C0B2C01131E1B3",
+      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA.cer"
+    },
+    {
+      "file": "grca-g2.cer",
+      "name": "Government Root Certification Authority (GRCA G2)",
+      "category": "government",
+      "sha256": "70B922BFDA0E3F4A342E4EE22D579AE598D071CC5EC9C30F123680340388AEA5",
+      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA2.cer (also in Microsoft AuthRoot)"
+    },
+    {
+      "file": "grca-g3.cer",
+      "name": "Government Root Certification Authority - G3 (GRCA G3)",
+      "category": "government",
+      "sha256": "57DF6F20E04C588E85F35BE8832F5D4E78958336AE3B18FB7C9BAE0DFEAD4044",
+      "source": "https://grca.nat.gov.tw/repository/Certs/GRCA3.cer"
+    },
+    {
+      "file": "twca-root-ca-sha1.cer",
+      "name": "TWCA Root Certification Authority (SHA-1, RSA-2048)",
+      "category": "private",
+      "sha256": "BFD88FE1101C41AE3E801BF8BE56350EE9BAD1A6B9BD515EDC5C6D5B8711AC44",
+      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot; https://www.twca.com.tw/repository (TWCA Root Certificate zip)"
+    },
+    {
+      "file": "twca-root-ca-sha256.cer",
+      "name": "TWCA Root Certification Authority (SHA-256, RSA-4096)",
+      "category": "private",
+      "sha256": "632D80BB096D209677D1734E5B35EA9D3019B9C44F8FCB2640C879039AC94EE8",
+      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)"
+    },
+    {
+      "file": "twca-global-root-ca.cer",
+      "name": "TWCA Global Root CA",
+      "category": "private",
+      "sha256": "59769007F7685D0FCD50872F9F95D5755A5B2B457D81F3692B610A98672F0E1B",
+      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot; https://www.twca.com.tw/repository (TWCA Root Certificate zip)"
+    },
+    {
+      "file": "twca-cyber-root-ca.cer",
+      "name": "TWCA CYBER Root CA",
+      "category": "private",
+      "sha256": "3F63BB2814BE174EC8B6439CF08D6D56F0B7C405883A5648A334424D6B3EC558",
+      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25)"
+    },
+    {
+      "file": "twca-information-xml-plus-root-ca.cer",
+      "name": "TWCA Information XML Plus Root CA",
+      "category": "private",
+      "sha256": "26C1AFE8F70A605E456B1E3CD1B45F47621F112E6FA15BE0A5389B426F4C5E17",
+      "source": "https://www.twca.com.tw/repository (數位化申請作業之憑證管理中心憑證 zip; SHA-1 81D2A3049F72E2474AE22284353E2BEE9C98A325 in the official certificate info PDF; root of the TWCA IXML+ CPS v2.0)"
+    },
+    {
+      "file": "cht-epki-root-ca.cer",
+      "name": "Chunghwa Telecom ePKI Root Certification Authority",
+      "category": "private",
+      "sha256": "C0A6F4DC63A24BFDCF54EF2A6A082A0A72DE35803E2FF5FF527AE5D87206DFD5",
+      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)"
+    },
+    {
+      "file": "cht-epki-root-ca-g2.cer",
+      "name": "Chunghwa Telecom ePKI Root Certification Authority - G2",
+      "category": "private",
+      "sha256": "1E51942B84FD467BF77D1C89DA241C04254DC8F3EF4C22451FE7A89978BDCD4F",
+      "source": "Microsoft Trusted Root Program (Windows AuthRoot store)"
+    },
+    {
+      "file": "cht-hipki-root-ca-g1.cer",
+      "name": "Chunghwa Telecom HiPKI Root CA - G1",
+      "category": "private",
+      "sha256": "F015CE3CC239BFEF064BE9F1D2C417E1A0264A0A94BE1F0C8D121864EB6949CC",
+      "source": "https://curl.se/ca/cacert.pem (Mozilla CCADB, 2026-09-25) and Microsoft AuthRoot"
+    }
+  ],
+  "intermediates": [
+    {
+      "file": "moica-g2.cer",
+      "name": "MOICA G2 (內政部憑證管理中心)",
+      "category": "government",
+      "sha256": "C4C462DE463F856804DC898338D2CECB55FBA74155851599D8FB7D70218FD1BE",
+      "source": "https://moica.nat.gov.tw/repository/Certs/MOICA2.cer"
+    },
+    {
+      "file": "gca-g2.cer",
+      "name": "GCA G2 (政府憑證管理中心)",
+      "category": "government",
+      "sha256": "1F992B635905FC0EECEDAABCEAF9741D77778DD838DE92B5BB5111722F4631D6",
+      "source": "https://gca.nat.gov.tw/repository/Certs/GCA2.cer"
+    },
+    {
+      "file": "gca-g3.cer",
+      "name": "GCA G3 (政府憑證管理中心 - G3)",
+      "category": "government",
+      "sha256": "723FB2E74B0FF46A79640BC9C065D08FC62C5044E6CC855316FC74E14545C4A5",
+      "source": "https://gca.nat.gov.tw/repository/Certs/GCA3.cer"
+    },
+    {
+      "file": "xca-g2.cer",
+      "name": "XCA G2 (組織及團體憑證管理中心)",
+      "category": "government",
+      "sha256": "B2EE26FD0BE0F80CC2473785CF9E98905A73630E8DABF12AEB968BB4D81A2DD6",
+      "source": "https://xca.nat.gov.tw/repository/Certs/XCA2.cer"
+    },
+    {
+      "file": "xca-g3.cer",
+      "name": "XCA G3 (組織及團體憑證管理中心 - G3)",
+      "category": "government",
+      "sha256": "A07C17472ED382C517DA0439CD2D8A567C48F86AEFFC8A0BEBD6F3A1A54B8AB2",
+      "source": "https://xca.nat.gov.tw/repository/Certs/XCA3.cer"
+    },
+    {
+      "file": "moeaca-g2.cer",
+      "name": "MOEACA G2 (工商憑證管理中心)",
+      "category": "government",
+      "sha256": "0CF08B01E554EB7631D4916E9E8C5398AF994242A26CA388638622A0E59FF379",
+      "source": "https://moeaca.nat.gov.tw/repository/Certs/MOEACA2.cer"
+    },
+    {
+      "file": "moeaca-g3.cer",
+      "name": "MOEACA G3 (工商憑證管理中心)",
+      "category": "government",
+      "sha256": "B144FA2C7041B093A6775F557F1707499750FF7AEDB0510DD573DD46A98A0D6C",
+      "source": "https://moeaca.nat.gov.tw/repository/Certs/MOEACA3.cer"
+    }
+  ]
+}

@@ -137,7 +137,11 @@
       "cadesHashDetails": "預期：{expected}，實際：{actual}",
       "signedWithSubsequentChanges": "簽章完整，但文件在簽署後仍有變更（多重簽章或附加內容）",
       "docMdpViolation": "違反 DocMDP 限制",
-      "docMdpP1Violation": "此認證簽章設定為「不可修改」（P=1），但偵測到後續變更"
+      "docMdpP1Violation": "此認證簽章設定為「不可修改」（P=1），但偵測到後續變更",
+      "signingCertMismatch": "簽署屬性綁定的憑證與簽署者憑證不符",
+      "unsupportedDigest": "不支援的摘要演算法",
+      "subsequentSignatures": "簽章完整；其後有其他簽章或長期驗證資料加入",
+      "unpermittedChanges": "簽署後的變更未經允許或無法確認：{reason}"
     },
     "chain": {
       "signerCertNotFound": "找不到簽署者憑證",
@@ -148,7 +152,12 @@
       "chainIncomplete": "憑證鏈不完整",
       "cannotBuildChain": "無法建立完整憑證鏈",
       "rootCa": "根 CA：{name}",
-      "unknownSigner": "未知"
+      "unknownSigner": "未知",
+      "selfSignedNotSupported": "不支援自簽憑證",
+      "chainVerifiedUntrustedRoot": "憑證鏈完整且簽章已驗證，但根憑證不受信任",
+      "signerIsCa": "簽署者憑證是 CA 憑證，不可用於簽署文件",
+      "keyUsageNotForSigning": "簽署者憑證的金鑰用途不含數位簽章／不可否認",
+      "ekuNotForSigning": "簽署者憑證的延伸用途不適用於文件簽署（如 TLS、時戳、OCSP）"
     },
     "trust": {
       "chainComplete": "憑證鏈完整",
@@ -156,7 +165,9 @@
       "cannotBuildChain": "無法建立完整憑證鏈",
       "rootUntrusted": "根憑證不在信任清單中",
       "rootNotInStore": "根 CA「{name}」未列入信任清單",
-      "storeEmpty": "信任清單為空 — 尚未載入任何 root CA，所有簽章預設視為不可信"
+      "storeEmpty": "信任清單為空 — 尚未載入任何 root CA，所有簽章預設視為不可信",
+      "selfSignedNotSupported": "簽署者憑證為自簽憑證，本工具不支援",
+      "trusted": "已鏈結至信任的台灣根憑證"
     },
     "timestamp": {
       "verified": "時戳已驗證",
@@ -171,7 +182,12 @@
       "currentlyValid": "憑證目前有效",
       "expiredWithLtv": "憑證已過期但簽章具備 LTV",
       "expired": "憑證已過期",
-      "expiredDate": "過期日期：{date}"
+      "expiredDate": "過期日期：{date}",
+      "validAtTimestamp": "憑證於時戳時間有效",
+      "expiredNoTimestamp": "憑證已過期，且沒有可信時戳證明簽署時間",
+      "notValidAtTimestamp": "時戳時間不在憑證有效期間內",
+      "notYetValid": "憑證尚未生效",
+      "caNotValid": "上層 CA 憑證「{name}」於驗證時間不在有效期間內"
     },
     "revocation": {
       "notRevokedEmbedded": "憑證未被撤銷（內嵌資料）",
@@ -199,7 +215,14 @@
       "inEmbeddedCrl": "憑證存在於內嵌 CRL 撤銷清單中（簽發者：{issuer}）",
       "notInEmbeddedCrl": "憑證未在內嵌 CRL 撤銷清單中（簽發者：{issuer}）",
       "cannotDetermineFromEmbedded": "無法從內嵌撤銷資訊判定狀態",
-      "missingRevocationInfo": "{name} 缺少撤銷資訊"
+      "missingRevocationInfo": "{name} 缺少撤銷資訊",
+      "revokedAt": "撤銷時間：{date}",
+      "revokedAfterSigning": "憑證於簽署後（{date}）才被撤銷，簽署當時有效",
+      "caRevoked": "上層 CA 憑證「{name}」已被撤銷",
+      "evidence": "{kind}，簽發者：{signer}",
+      "chainNotTrusted": "憑證鏈未鏈結至信任根憑證，無法驗證撤銷資訊",
+      "expiredNeedsLtv": "憑證已過期，需要文件內嵌的撤銷資料（LTV）才能確認",
+      "caUnknown": "無法確認上層 CA 憑證「{name}」的撤銷狀態"
     },
     "ltv": {
       "noLtvInfo": "無 LTV 資訊",
@@ -280,7 +303,12 @@
       "tsaCertMissing": "時戳中無 TSA 憑證",
       "tsaUntrusted": "TSA「{tsa}」不在信任清單中",
       "tsaUntrustedDetails": "TSA「{tsa}」的憑證未列入 TSA 信任清單",
-      "tsaTrustStoreEmpty": "TSA 信任清單為空 — 尚未載入任何 TSA root，無法判定時戳是否可信"
+      "tsaTrustStoreEmpty": "TSA 信任清單為空 — 尚未載入任何 TSA root，無法判定時戳是否可信",
+      "tsaNotTimestampingCert": "TSA「{tsa}」的憑證不具時戳用途（timeStamping）",
+      "tsaCertNotValidAtTime": "時戳時間不在 TSA「{tsa}」憑證有效期間內",
+      "unsupportedAlgorithm": "時戳使用不支援的演算法",
+      "tsaRevoked": "TSA「{tsa}」的憑證在時戳時間之前已被撤銷",
+      "tsaRevocationUnknown": "無法確認 TSA「{tsa}」憑證的撤銷狀態，時戳時間不予採用"
     },
     "misc": {
       "pdfDownloadFailed": "PDF 下載失敗: {status}",

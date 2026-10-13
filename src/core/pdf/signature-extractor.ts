@@ -1,6 +1,7 @@
 import type { PdfSignatureField, ByteRange, EmbeddedRevocationInfo } from '@/types'
 import { buildXRefTable, resolveObject, resolveStreamObject } from './xref-parser'
 import type { XRefTable } from './xref-parser'
+import { asBufferSource } from '../bytes'
 
 /**
  * Alternative signature extraction using raw PDF parsing
@@ -10,11 +11,16 @@ export function extractSignaturesFromRaw(data: Uint8Array): PdfSignatureField[] 
   const signatures: PdfSignatureField[] = []
   const text = new TextDecoder('latin1').decode(data)
 
-  // Find all signature dictionaries (/Type /Sig and /Type /DocTimeStamp)
+  // Find all signature dictionaries (/Type /Sig and /Type /DocTimeStamp).
+  // Matches inside stream data are skipped: an attached (embedded) PDF can
+  // carry its own signature dictionaries, whose ByteRanges refer to the
+  // attachment, not to this document.
+  const streamSpans = findStreamDataSpans(data, text)
   const sigRegex = /\/Type\s*\/(Sig|DocTimeStamp)\b/g
   let match: RegExpExecArray | null
 
   while ((match = sigRegex.exec(text)) !== null) {
+    if (isInsideSpan(match.index, streamSpans)) continue
     const sigField = extractSignatureAtPosition(data, text, match.index)
     if (sigField) {
       if (match[1] === 'DocTimeStamp') {
@@ -25,6 +31,40 @@ export function extractSignaturesFromRaw(data: Uint8Array): PdfSignatureField[] 
   }
 
   return signatures
+}
+
+/**
+ * Byte spans [start, end) of stream data. Uses a direct /Length when present,
+ * otherwise the next "endstream".
+ */
+function findStreamDataSpans(data: Uint8Array, text: string): Array<[number, number]> {
+  const spans: Array<[number, number]> = []
+  const re = /\bstream\r?\n/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    if (text.slice(Math.max(0, m.index - 3), m.index) === 'end') continue
+    const start = m.index + m[0].length
+    const dictEnd = text.lastIndexOf('>>', m.index)
+    const dictStart = dictEnd === -1 ? -1 : text.lastIndexOf(' obj', dictEnd)
+    const lengthMatch = dictStart === -1 ? null : text.slice(dictStart, dictEnd).match(/\/Length\s+(\d+)\b(?!\s+\d+\s+R)/)
+    let end = lengthMatch ? start + Number(lengthMatch[1]) : -1
+    if (end <= start || end > data.length || !text.startsWith('endstream', skipEol(text, end))) {
+      end = text.indexOf('endstream', start)
+    }
+    if (end === -1) break
+    spans.push([start, end])
+    re.lastIndex = end
+  }
+  return spans
+}
+
+function skipEol(text: string, i: number): number {
+  while (text[i] === '\r' || text[i] === '\n') i++
+  return i
+}
+
+function isInsideSpan(index: number, spans: Array<[number, number]>): boolean {
+  return spans.some(([start, end]) => index >= start && index < end)
 }
 
 function extractSignatureAtPosition(
@@ -234,7 +274,7 @@ function extractContents(
 }
 
 function extractObjectContents(
-  data: Uint8Array,
+  _data: Uint8Array,
   text: string,
   objNum: number,
   genNum: number
@@ -842,7 +882,7 @@ async function decompressWithFormat(
   const writer = ds.writable.getWriter()
   const reader = ds.readable.getReader()
 
-  writer.write(compressed).catch(() => {})
+  writer.write(asBufferSource(compressed)).catch(() => {})
   writer.close().catch(() => {})
 
   const chunks: Uint8Array[] = []

@@ -2,6 +2,8 @@ import type { Certificate } from 'pkijs'
 
 export interface ParsedCertificate {
   raw: Certificate
+  /** Original DER as received (fingerprints and ESS cert hashes use this). */
+  der?: Uint8Array
   subject: string
   issuer: string
   serialNumber: string
@@ -11,6 +13,10 @@ export interface ParsedCertificate {
   fingerprint: string
   isCA: boolean
   isSelfSigned: boolean
+  /** basicConstraints pathLenConstraint, when present */
+  pathLenConstraint?: number | null
+  /** Whether the keyUsage extension is present (absent = no restriction) */
+  keyUsagePresent?: boolean
   keyUsage: KeyUsageFlags
   extKeyUsage: string[]
   authorityInfoAccess: AuthorityInfoAccess | null
@@ -37,10 +43,15 @@ export interface AuthorityInfoAccess {
 }
 
 export interface CertificateChain {
+  /** Leaf first. Every link has been cryptographically verified. */
   certificates: ParsedCertificate[]
   root: ParsedCertificate | null
+  /** Path reaches a self-signed certificate (trusted or not). */
   isComplete: boolean
+  /** Path ends at a trust anchor (fingerprint match). */
   isTrusted: boolean
+  /** The end-entity certificate is self-signed (never supported). */
+  selfSignedLeaf?: boolean
 }
 
 export interface TrustAnchor {

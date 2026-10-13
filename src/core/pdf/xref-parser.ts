@@ -1,3 +1,4 @@
+import { asBufferSource } from '../bytes'
 /**
  * PDF Cross-Reference Stream Parser
  *
@@ -215,7 +216,7 @@ async function extractObjectFromObjStm(
 /**
  * Extract a stream object's decompressed data given its byte offset.
  */
-async function extractStreamAtOffset(
+export async function extractStreamAtOffset(
   data: Uint8Array,
   text: string,
   offset: number
@@ -309,7 +310,7 @@ function resolveIntegerFromText(text: string, objNum: number, genNum: number): n
  * Decompress FlateDecode using DecompressionStream API.
  * Tries zlib (deflate) first, then raw deflate as fallback.
  */
-async function decompressFlate(compressed: Uint8Array): Promise<Uint8Array | null> {
+export async function decompressFlate(compressed: Uint8Array): Promise<Uint8Array | null> {
   if (typeof DecompressionStream === 'undefined') return null
 
   const formats: CompressionFormat[] = ['deflate', 'raw' as CompressionFormat]
@@ -320,7 +321,7 @@ async function decompressFlate(compressed: Uint8Array): Promise<Uint8Array | nul
       const writer = ds.writable.getWriter()
       const reader = ds.readable.getReader()
 
-      writer.write(compressed).catch(() => {})
+      writer.write(asBufferSource(compressed)).catch(() => {})
       writer.close().catch(() => {})
 
       const chunks: Uint8Array[] = []

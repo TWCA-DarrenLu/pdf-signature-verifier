@@ -2,9 +2,13 @@ import type {
   VerificationResult,
   SignatureResult,
   CertificateInfo,
+  CertificateChain,
   TimestampInfo,
   PdfSignatureField,
   EmbeddedRevocationInfo,
+  ParsedCertificate,
+  CheckResult,
+  VerificationStatus,
 } from '@/types'
 import {
   createPassedCheck,
@@ -15,25 +19,44 @@ import {
 import { t, getLocale } from '@/i18n'
 import { parsePdf } from './pdf/parser'
 import { extractSignedBytes, validateByteRange } from './pdf/byte-range'
-import { parsePkcs7, getSignedAttributesData } from './crypto/pkcs7-parser'
-import { verifyMessageDigest, normalizeDigestAlgorithm, computeDigest } from './crypto/digest-verifier'
-import { verifyPkcs7Signature, verifySignature } from './crypto/signature-verifier'
+import { parsePkcs7 } from './crypto/pkcs7-parser'
+import { computeDigest, compareBytes, normalizeDigestAlgorithm } from './crypto/digest-verifier'
+import { verifyCmsSignerInfo, getEncapsulatedContentBytes } from './crypto/pki-verify'
 import { buildCertificateChain } from './certificate/chain-builder'
-import { validateCertificateChain } from './certificate/chain-validator'
 import { getCommonName, isCertificateValid } from './certificate/cert-utils'
-import { checkOcspStatus } from './revocation/ocsp-client'
-import { checkCrlStatus } from './revocation/crl-client'
-import { checkEmbeddedRevocationStatus } from './revocation/embedded-reader'
-import { verifyTimestamp, getEffectiveSigningTime } from './timestamp/tst-verifier'
-import { checkLtvCompleteness, canTrustExpiredWithLtv } from './ltv/ltv-checker'
-import { isTrustAnchor, initializeTrustStore, isTrustStoreEmpty } from '@/trust-store/trust-manager'
-import { checkForPostSignModification } from './pdf/byte-range'
+import { checkCertificateRevocation, type CertRevocationOutcome, type RevocationContext } from './revocation/revocation-checker'
+import { verifyTimestampForData, type TimestampFailure } from './timestamp/tst-verifier'
+import { checkLtvCompleteness } from './ltv/ltv-checker'
+import { createChangeAnalyzer, type ChangeAnalyzer, type ChangePolicy } from './pdf/incremental-update'
+import { initializeTrustStore, isTrustStoreEmpty } from '@/trust-store/trust-manager'
 import { ensurePkijsEngine } from './crypto/pkijs-engine'
 
 export interface VerificationOptions {
+  /** Allow OCSP / CRL / AIA network access. Default true. */
   checkOnlineRevocation?: boolean
+  /** Verify embedded RFC 3161 timestamps. Default true. */
   validateTimestamp?: boolean
+  /** Kept for API compatibility; a trusted root is always required. */
   requireTrustedRoot?: boolean
+}
+
+interface DocContext {
+  pdfData: Uint8Array
+  allFields: PdfSignatureField[]
+  dss: EmbeddedRevocationInfo | null
+  options: VerificationOptions
+  /** Compares each signed revision with the final document. */
+  changes: ChangeAnalyzer
+  /** DocMDP permission level of the certification signature, if any. */
+  docMdpLevel: 1 | 2 | 3 | null
+  /** Verified DocTimeStamp results, by field. */
+  docTimestamps: Map<PdfSignatureField, DocTimestampOutcome>
+}
+
+interface DocTimestampOutcome {
+  result: SignatureResult
+  trusted: boolean
+  ltvCovered: boolean
 }
 
 /**
@@ -48,7 +71,6 @@ export async function verifyPdfSignatures(
   ensurePkijsEngine()
   await initializeTrustStore()
 
-  // Parse PDF
   const pdf = await parsePdf(pdfData)
 
   if (pdf.signatureFields.length === 0) {
@@ -61,755 +83,854 @@ export async function verifyPdfSignatures(
     }
   }
 
-  // Verify each signature
-  const signatures: SignatureResult[] = []
-
-  for (let i = 0; i < pdf.signatureFields.length; i++) {
-    const sigField = pdf.signatureFields[i]
-
-    // DocTimeStamp uses a separate verification path
-    if (sigField.isDocTimeStamp) {
-      const result = await verifyDocTimeStamp(pdf.data, sigField, i)
-      signatures.push(result)
-      continue
-    }
-
-    const result = await verifySingleSignature(
-      pdf.data,
-      sigField,
-      i,
-      options,
-      pdf.dssRevocationInfo,
-      pdf.signatureFields
-    )
-    signatures.push(result)
+  const ctx: DocContext = {
+    pdfData: pdf.data,
+    allFields: pdf.signatureFields,
+    dss: pdf.dssRevocationInfo,
+    options,
+    changes: createChangeAnalyzer(pdf.data),
+    // Only the first signature of the document can be a certification signature.
+    docMdpLevel:
+      [...pdf.signatureFields].sort(
+        (a, b) => a.byteRange.start2 + a.byteRange.length2 - (b.byteRange.start2 + b.byteRange.length2)
+      )[0]?.docMdp?.permissionLevel ?? null,
+    docTimestamps: new Map(),
   }
 
-  // Determine overall status
-  const status = determineOverallStatus(signatures)
+  // Document timestamps first: approval signatures use them for B-LTA.
+  for (let i = 0; i < pdf.signatureFields.length; i++) {
+    const field = pdf.signatureFields[i]
+    if (field.isDocTimeStamp) {
+      ctx.docTimestamps.set(field, await verifyDocTimeStamp(field, i, ctx))
+    }
+  }
 
-  // Generate summary
-  const summary =
+  const signatures: SignatureResult[] = []
+  for (let i = 0; i < pdf.signatureFields.length; i++) {
+    const field = pdf.signatureFields[i]
+    const docTs = ctx.docTimestamps.get(field)
+    signatures.push(docTs ? docTs.result : await verifySingleSignature(field, i, ctx))
+  }
+
+  const status = determineOverallStatus(signatures)
+  const summaryKey =
     status === 'trusted'
-      ? t('core.summary.allTrusted', { count: signatures.length })
+      ? 'core.summary.allTrusted'
       : status === 'failed'
-      ? t('core.summary.someFailed')
-      : t('core.summary.cannotFullyVerify')
+      ? 'core.summary.someFailed'
+      : 'core.summary.cannotFullyVerify'
+  const summaryParams = status === 'trusted' ? { count: signatures.length } : undefined
 
   return {
     status,
     fileName,
     signatures,
-    summary,
-    summaryI18nKey: status === 'trusted'
-      ? 'core.summary.allTrusted'
-      : status === 'failed'
-      ? 'core.summary.someFailed'
-      : 'core.summary.cannotFullyVerify',
-    summaryI18nParams: status === 'trusted' ? { count: signatures.length } : undefined,
+    summary: t(summaryKey, summaryParams),
+    summaryI18nKey: summaryKey,
+    summaryI18nParams: summaryParams,
   }
 }
 
-/**
- * Verify a single signature
- */
-/**
- * Decide whether unsigned trailing bytes for THIS signature are explained
- * by a later signature's incremental update (legitimate multi-sig case) or
- * indicate a signature wrapping attack.
- */
-function hasLaterSignatureCovering(
-  thisSig: PdfSignatureField,
-  allFields: PdfSignatureField[],
-  tailEnd: number
-): boolean {
-  const thisEnd = thisSig.byteRange.start2 + thisSig.byteRange.length2
-  for (const other of allFields) {
-    if (other === thisSig) continue
-    const otherEnd = other.byteRange.start2 + other.byteRange.length2
-    if (otherEnd >= tailEnd && other.byteRange.start1 <= thisEnd) {
-      return true
-    }
-  }
-  return false
+// ─── Status policy ───────────────────────────────────────────────
+
+export interface SignatureStatusInput {
+  integrityPassed: boolean
+  selfSignedSigner: boolean
+  /** Signer certificate not intended for signing (CA cert, keyUsage, EKU). */
+  signerCertUnsuitable?: boolean
+  chainTrusted: boolean
+  validityPassed: boolean
+  revocation: 'good' | 'revoked' | 'unknown'
+  /** Set when a timestamp is present but did not verify. */
+  timestampFailure?: TimestampFailure | null
+  docMdpViolation: boolean
+  /** Content changed after the last signature (not just LTV material). */
+  unexplainedChanges: boolean
 }
+
+/**
+ * Status policy (default: Taiwan PKI, no self-signed certificates):
+ *   failed  — broken integrity, self-signed signer, revoked certificate,
+ *             DocMDP violation, or a timestamp whose imprint/signature is invalid
+ *   unknown — anything not proven: untrusted/incomplete chain, validity not
+ *             established, revocation status unknown, untrusted TSA,
+ *             unexplained changes after the last signature
+ *   trusted — everything above proven
+ */
+export function determineSignatureStatus(input: SignatureStatusInput): VerificationStatus {
+  const brokenTimestamp =
+    input.timestampFailure === 'imprintMismatch' ||
+    input.timestampFailure === 'signatureInvalid' ||
+    input.timestampFailure === 'tsaRevoked'
+  if (
+    !input.integrityPassed ||
+    input.selfSignedSigner ||
+    input.signerCertUnsuitable ||
+    input.revocation === 'revoked' ||
+    input.docMdpViolation ||
+    brokenTimestamp
+  ) {
+    return 'failed'
+  }
+  if (
+    !input.chainTrusted ||
+    !input.validityPassed ||
+    input.revocation !== 'good' ||
+    input.timestampFailure ||
+    input.unexplainedChanges
+  ) {
+    return 'unknown'
+  }
+  return 'trusted'
+}
+
+// ─── Approval / certification signatures ─────────────────────────
 
 async function verifySingleSignature(
-  pdfData: Uint8Array,
   sigField: PdfSignatureField,
   index: number,
-  options: VerificationOptions,
-  dssRevocationInfo: EmbeddedRevocationInfo | null = null,
-  allSignatureFields: PdfSignatureField[] = []
+  ctx: DocContext
 ): Promise<SignatureResult> {
+  const notVerified = () =>
+    createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' })
   const checks: SignatureResult['checks'] = {
-    integrity: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
-    certificateChain: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
-    trustRoot: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
-    validity: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
-    revocation: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
+    integrity: notVerified(),
+    certificateChain: notVerified(),
+    trustRoot: notVerified(),
+    validity: notVerified(),
+    revocation: notVerified(),
     timestamp: null,
-    ltv: createFailedCheck(t('core.integrity.notVerified'), undefined, { key: 'core.integrity.notVerified' }),
+    ltv: notVerified(),
   }
 
   let signerName = t('core.chain.unknownSigner')
   let signedAt: Date | null = null
-  const certificateChain: CertificateInfo[] = []
-  let timestampInfo: TimestampInfo | undefined
-  // Audit P1-4: tracks "signed with subsequent changes" — the signature itself
-  // is intact, but content was appended afterwards (legitimately if a later
-  // signature covers it, suspiciously otherwise).
-  let signedWithSubsequentChanges = false
+  let certificateChain: CertificateInfo[] = []
+  const fail = () => createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
 
   try {
-    // 1. Validate ByteRange — structural checks fail-closed (gap content
-    // invalid, ranges overlap, exceed file size). The unsigned-tail signal
-    // is handled separately below per audit P1-4.
-    const byteRangeValidation = validateByteRange(pdfData, sigField.byteRange)
+    // 1. ByteRange structure
+    const byteRangeValidation = validateByteRange(ctx.pdfData, sigField.byteRange)
     if (!byteRangeValidation.isValid) {
       checks.integrity = createFailedCheck(
         t('core.integrity.byteRangeFailed'),
         byteRangeValidation.errors.join('; '),
         { key: 'core.integrity.byteRangeFailed' }
       )
-      return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
+      return fail()
     }
 
-    // Audit P1-4: handle "tail not covered by this signature".
-    // - 0 trailing or whitespace-only → fine
-    // - Trailing bytes that a later signature covers → multi-sig, demote to "signed with subsequent changes"
-    // - Trailing bytes WITHOUT a later signature → legitimate post-sign incremental update; demote
-    // - Combined with a DocMDP P=1 certification signature → fail (handled later in status logic)
-    if (!byteRangeValidation.trailingIsWhitespaceOnly && byteRangeValidation.trailingUnsignedBytes > 0) {
-      signedWithSubsequentChanges = true
-    }
-    // checkForPostSignModification is a redundant secondary check; we keep
-    // calling it so its result is available for diagnostics / later policy.
-    const postSign = checkForPostSignModification(pdfData, sigField.byteRange)
-    if (postSign.modified) {
-      signedWithSubsequentChanges = true
-    }
-
-    // 2. Parse PKCS#7
+    // 2. CMS structure
     const pkcs7 = await parsePkcs7(sigField.contents)
-
-    if (pkcs7.signerInfos.length === 0) {
-      checks.integrity = createFailedCheck(t('core.integrity.noSignerInfo'), undefined, { key: 'core.integrity.noSignerInfo' })
-      return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
-    }
-
     const signerInfo = pkcs7.signerInfos[0]
+    const rawSignerInfo = pkcs7.signedData.signerInfos[0]
+    if (!signerInfo || !rawSignerInfo) {
+      checks.integrity = createFailedCheck(t('core.integrity.noSignerInfo'), undefined, { key: 'core.integrity.noSignerInfo' })
+      return fail()
+    }
+    const signerCert = signerInfo.signerCertificate
+    if (!signerCert) {
+      checks.integrity = createFailedCheck(t('core.chain.signerCertNotFound'), undefined, { key: 'core.chain.signerCertNotFound' })
+      checks.certificateChain = createFailedCheck(t('core.chain.signerCertNotFound'), undefined, { key: 'core.chain.signerCertNotFound' })
+      return fail()
+    }
+    signerName = getCommonName(signerCert)
+    signedAt = signerInfo.signingTime ?? pkcs7.embeddedTimestamp?.time ?? null
 
-    // Get signer name
-    if (signerInfo.signerCertificate) {
-      signerName = getCommonName(signerInfo.signerCertificate)
+    // 3. Integrity: messageDigest over the signed byte ranges + CMS signature
+    const integrity = await verifyIntegrity(ctx.pdfData, sigField, pkcs7, rawSignerInfo, signerCert, signerInfo)
+    checks.integrity = integrity.check
+    if (!integrity.passed) {
+      // An algorithm we cannot verify is "cannot tell", not "invalid".
+      return integrity.unsupported
+        ? createSignatureResult(index, signerName, signedAt, 'unknown', checks, certificateChain)
+        : fail()
     }
 
-    // Get signing time (prefer signingTime attribute, fallback to embedded timestamp time)
-    signedAt = signerInfo.signingTime
-    if (!signedAt && pkcs7.embeddedTimestamp) {
-      signedAt = pkcs7.embeddedTimestamp.time
-    }
+    const revInfo = mergeRevocationInfo(pkcs7.embeddedRevocationInfo, ctx.dss)
+    const allowNetwork = ctx.options.checkOnlineRevocation !== false
 
-    // 3. Verify message digest (integrity)
-    const signedBytes = extractSignedBytes(pdfData, sigField.byteRange)
+    // 4–5. Certification path + trust anchor
+    const chain = await buildCertificateChain(signerCert, pkcs7.certificates, {
+      fetchMissing: allowNetwork,
+      additionalCertBytes: revInfo?.certs ?? [],
+    })
+    certificateChain = toCertificateInfo(chain)
+    const chainChecks = describeChain(chain)
+    checks.certificateChain = chainChecks.certificateChain
+    checks.trustRoot = chainChecks.trustRoot
 
-    if (signerInfo.messageDigest) {
-      const digestResult = await verifyMessageDigest(
-        signedBytes,
-        signerInfo.messageDigest,
-        signerInfo.digestAlgorithm
-      )
-
-      if (!digestResult.valid) {
-        checks.integrity = createFailedCheck(
-          t('core.integrity.documentModified'),
-          t('core.integrity.digestMismatch'),
-          { key: 'core.integrity.documentModified', detailsKey: 'core.integrity.digestMismatch' }
-        )
-        return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
-      }
-
-      // Verify cryptographic signature over signed attributes
-      const signedAttrsData = getSignedAttributesData(pkcs7.signedData, 0)
-      if (signedAttrsData && signerInfo.signerCertificate) {
-        const sigResult = await verifySignature(
-          signerInfo.signatureValue,
-          signedAttrsData,
-          signerInfo.signerCertificate,
-          signerInfo.signatureAlgorithm,
-          signerInfo.digestAlgorithm
-        )
-
-        if (sigResult.isValid) {
-          checks.integrity = createPassedCheck(
-            t('core.integrity.integrityAndSignatureVerified'),
-            undefined,
-            { key: 'core.integrity.integrityAndSignatureVerified' }
-          )
-        } else {
-          checks.integrity = createFailedCheck(
-            t('core.integrity.signatureVerificationFailed'),
-            sigResult.error || t('core.integrity.cryptoMismatch'),
-            { key: 'core.integrity.signatureVerificationFailed' }
-          )
-          return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
-        }
-      } else {
-        checks.integrity = createPassedCheck(
-          t('core.integrity.integrityVerifiedDigestOnly'),
-          undefined,
-          { key: 'core.integrity.integrityVerifiedDigestOnly' }
-        )
-      }
-    } else {
-      // Direct signature verification
-      const sigResult = await verifyPkcs7Signature(pkcs7.signedData, signedBytes, 0)
-      if (sigResult.isValid) {
-        checks.integrity = createPassedCheck(
-          t('core.integrity.signatureVerified'),
-          undefined,
-          { key: 'core.integrity.signatureVerified' }
-        )
-      } else {
-        checks.integrity = createFailedCheck(
-          t('core.integrity.signatureVerificationFailed'),
-          sigResult.error,
-          { key: 'core.integrity.signatureVerificationFailed' }
-        )
-        return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
-      }
-    }
-
-    // 3b. CAdES: verify signingCertificate hash matches signer certificate
-    if (signerInfo.signingCertificateHash && signerInfo.signerCertificate) {
-      const certDer = new Uint8Array(signerInfo.signerCertificate.raw.toSchema().toBER())
-      const certDigest = await computeDigest('SHA-256', certDer)
-      const certHashHex = Array.from(certDigest)
-        .map((b) => b.toString(16).padStart(2, '0'))
-        .join('')
-
-      if (certHashHex !== signerInfo.signingCertificateHash) {
-        // CAdES signing certificate mismatch — downgrade integrity to warning
-        checks.integrity = {
-          passed: true,
-          message: t('core.integrity.integrityVerifiedCadesHashMismatch'),
-          details: t('core.integrity.cadesHashDetails', {
-            expected: signerInfo.signingCertificateHash,
-            actual: certHashHex,
-          }),
-          i18nKey: 'core.integrity.integrityVerifiedCadesHashMismatch',
-          detailsI18nKey: 'core.integrity.cadesHashDetails',
-          detailsI18nParams: {
-            expected: signerInfo.signingCertificateHash,
-            actual: certHashHex,
-          },
-        }
-      }
-    }
-
-    // 4. Build and validate certificate chain
-    if (!signerInfo.signerCertificate) {
-      checks.certificateChain = createFailedCheck(
-        t('core.chain.signerCertNotFound'),
-        undefined,
-        { key: 'core.chain.signerCertNotFound' }
-      )
+    const unsuitableKey = signingUsageProblem(signerCert)
+    if (unsuitableKey && !chain.selfSignedLeaf) {
+      checks.certificateChain = createFailedCheck(t(unsuitableKey), undefined, { key: unsuitableKey })
       return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
     }
 
-    const mergedRevInfo = mergeRevocationInfo(pkcs7.embeddedRevocationInfo, dssRevocationInfo)
-    const chain = await buildCertificateChain(
-      signerInfo.signerCertificate,
-      pkcs7.certificates,
-      {
-        fetchMissing: true,
-        additionalCertBytes: mergedRevInfo?.certs || [],
-      }
-    )
+    if (chain.selfSignedLeaf) {
+      checks.validity = notVerified()
+      checks.revocation = notVerified()
+      checks.ltv = notVerified()
+      return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
+    }
 
-    // Populate certificate chain info — trust status applies to entire chain
-    for (const cert of chain.certificates) {
-      certificateChain.push({
-        subject: cert.subject,
-        issuer: cert.issuer,
-        serialNumber: cert.serialNumber,
-        notBefore: cert.notBefore,
-        notAfter: cert.notAfter,
-        isRoot: cert.isSelfSigned,
-        isTrusted: chain.isTrusted,
+    // 6. Signature timestamp (RFC 3161 over the signature value)
+    let timestampInfo: TimestampInfo | undefined
+    let timestampFailure: TimestampFailure | null = null
+    let tsaRevocation: ChainRevocation | null = null
+    if (pkcs7.embeddedTimestamp && ctx.options.validateTimestamp !== false) {
+      const ts = await verifyTimestampForData(pkcs7.embeddedTimestamp.raw, signerInfo.signatureValue, {
+        extraCertBytes: revInfo?.certs ?? [],
+        fetchMissing: allowNetwork,
+      })
+      // The TSA path must be proven unrevoked at genTime before its time is used.
+      if (ts.valid && ts.info && ts.tsaChain) {
+        tsaRevocation = await checkChainRevocation(ts.tsaChain, {
+          embedded: revInfo,
+          allowOnline: allowNetwork,
+          atTime: ts.info.time,
+          atTimeTrusted: true,
+        })
+      }
+      // genTime is the TSA's own claim: if its key was compromised, any time
+      // it states is suspect, so such a revocation invalidates every token.
+      const tsaKeyCompromised =
+        !!tsaRevocation?.leaf.revokedAfterSigning &&
+        ['keyCompromise', 'caCompromise', 'unspecified', undefined].includes(tsaRevocation.leaf.evidence?.reason)
+      const tsaRevocationFailure: TimestampFailure | null =
+        tsaRevocation?.status === 'revoked' || tsaKeyCompromised
+          ? 'tsaRevoked'
+          : tsaRevocation?.status === 'unknown'
+            ? 'tsaRevocationUnknown'
+            : null
+      if (ts.valid && ts.info && !tsaRevocationFailure) {
+        timestampInfo = ts.info
+        signedAt = ts.info.time
+        checks.timestamp = createPassedCheck(
+          t('core.timestamp.verified'),
+          t('core.timestamp.timeLabel', { time: ts.info.time.toISOString() }),
+          { key: 'core.timestamp.verified', detailsKey: 'core.timestamp.timeLabel', detailsParams: { time: ts.info.time.toISOString() } }
+        )
+      } else if (tsaRevocationFailure) {
+        timestampFailure = tsaRevocationFailure
+        const detailsKey =
+          tsaRevocationFailure === 'tsaRevoked' ? 'core.timestampVerifier.tsaRevoked' : 'core.timestampVerifier.tsaRevocationUnknown'
+        checks.timestamp = createFailedCheck(t('core.timestamp.verificationFailed'), t(detailsKey, { tsa: ts.info?.issuer ?? '' }), {
+          key: 'core.timestamp.verificationFailed',
+          detailsKey,
+          detailsParams: { tsa: ts.info?.issuer ?? '' },
+        })
+      } else {
+        timestampFailure = ts.failure ?? 'parse'
+        checks.timestamp = createFailedCheck(t('core.timestamp.verificationFailed'), ts.check.message, {
+          key: 'core.timestamp.verificationFailed',
+        })
+      }
+    } else if (!pkcs7.embeddedTimestamp) {
+      checks.timestamp = createFailedCheck(t('core.timestamp.noTimestamp'), t('core.timestamp.noRfc3161'), {
+        key: 'core.timestamp.noTimestamp',
+        detailsKey: 'core.timestamp.noRfc3161',
       })
     }
 
-    // Validate certificate chain cryptographic signatures.
-    // requireTrustAnchor MUST be true — see audit P0-2.
-    const chainValidation = await validateCertificateChain(chain, {
-      validationTime: new Date(),
-      requireTrustAnchor: true,
+    // Validation time: a trusted timestamp, otherwise "now". The signer's own
+    // signingTime attribute is a claim, not evidence.
+    const trustedTime = timestampInfo?.time ?? null
+    const validationTime = trustedTime ?? new Date()
+
+    // 7. Validity of every certificate in the path at the validation time
+    checks.validity = describeValidity(chain, signerCert, trustedTime, validationTime)
+
+    // 8. Revocation (signer + issuing CAs)
+    const revCtx: RevocationContext = {
+      embedded: revInfo,
+      allowOnline: allowNetwork,
+      atTime: validationTime,
+      atTimeTrusted: trustedTime !== null,
+    }
+    const revocation = chain.isTrusted ? await checkChainRevocation(chain, revCtx) : null
+    checks.revocation = describeRevocation(revocation, chain, signerCert)
+
+    // 9. LTV (signer chain + TSA chain must be covered by validated embedded data)
+    const coverage = [...(revocation?.coverage ?? []), ...(trustedTime && tsaRevocation ? tsaRevocation.coverage : [])]
+    const archive = archiveTimestampsAfter(sigField, ctx)
+    const ltvResult = checkLtvCompleteness(chain.certificates, revInfo, timestampInfo ?? null, {
+      archiveTimestampCount: archive.length,
+      archiveTimestampsHaveLtv: archive.map((a) => a.ltvCovered),
+      revocationCoverage: chain.isTrusted ? coverage : [{ name: signerName, covered: false }],
+    })
+    checks.ltv = ltvResult.check
+
+    // Expired signer certificate: validity rests on the trusted timestamp;
+    // revocation must then come from embedded (LTV) data — online sources are
+    // not consulted for expired certificates (see revocation-checker.ts).
+    const signerExpiredNow = new Date() > signerCert.notAfter
+    if (signerExpiredNow && checks.validity.passed && revocation?.leaf.source === 'embedded' && revocation.status === 'good') {
+      checks.validity = createPassedCheck(t('core.validity.expiredWithLtv'), t('core.ltv.signedWithinValidity'), {
+        key: 'core.validity.expiredWithLtv',
+        detailsKey: 'core.ltv.signedWithinValidity',
+      })
+    }
+
+    // Changes after signing (later revisions compared with this one)
+    const changes = await assessChanges(sigField, ctx)
+    const { docMdpViolation, unexplainedChanges } = changes
+    checks.integrity = applyChangeAssessment(checks.integrity, changes)
+
+    const status = determineSignatureStatus({
+      integrityPassed: checks.integrity.passed,
+      selfSignedSigner: false,
+      chainTrusted: chain.isTrusted,
+      validityPassed: checks.validity.passed,
+      revocation: revocation?.status ?? 'unknown',
+      timestampFailure,
+      docMdpViolation,
+      unexplainedChanges,
     })
 
-    if (chain.isComplete && chainValidation.checks.signaturesValid.passed) {
-      checks.certificateChain = createPassedCheck(
-        t('core.chain.chainCompleteAndVerified'),
-        t('core.chain.chainCompleteWithCount', { count: chain.certificates.length }),
-        {
-          key: 'core.chain.chainCompleteAndVerified',
-          detailsKey: 'core.chain.chainCompleteWithCount',
-          detailsParams: { count: chain.certificates.length },
-        }
-      )
-    } else if (chain.isComplete) {
-      // Chain is structurally complete but crypto verification failed
-      // (e.g. unsupported algorithm). Treat as passed with warning.
-      checks.certificateChain = createPassedCheck(
-        t('core.chain.chainComplete'),
-        t('core.chain.chainCompleteDetails', {
-          count: chain.certificates.length,
-          details: chainValidation.checks.signaturesValid.details || t('core.misc.partialAlgorithmUnsupported'),
-        }),
-        {
-          key: 'core.chain.chainComplete',
-          detailsKey: 'core.chain.chainCompleteDetails',
-          detailsParams: {
-            count: chain.certificates.length,
-            details: chainValidation.checks.signaturesValid.details || t('core.misc.partialAlgorithmUnsupported'),
-          },
-        }
-      )
-    } else {
-      checks.certificateChain = createFailedCheck(
-        t('core.chain.chainIncomplete'),
-        undefined,
-        { key: 'core.chain.chainIncomplete' }
-      )
-    }
-
-    // 5. Check trust root — must match the curated trust store (audit P0-2).
-    // "Chain complete" alone is meaningless: anyone can self-sign a root CA.
-    if (!chain.isComplete || !chain.root) {
-      checks.trustRoot = createFailedCheck(
-        t('core.trust.chainIncomplete'),
-        t('core.trust.cannotBuildChain'),
-        {
-          key: 'core.trust.chainIncomplete',
-          detailsKey: 'core.trust.cannotBuildChain',
-        }
-      )
-    } else if (!chain.isTrusted || !isTrustAnchor(chain.root)) {
-      const rootName = getCommonName(chain.root)
-      const storeWarning = isTrustStoreEmpty()
-        ? t('core.trust.storeEmpty')
-        : t('core.trust.rootNotInStore', { name: rootName })
-      checks.trustRoot = createFailedCheck(
-        t('core.trust.rootUntrusted'),
-        storeWarning,
-        {
-          key: 'core.trust.rootUntrusted',
-          detailsKey: isTrustStoreEmpty() ? 'core.trust.storeEmpty' : 'core.trust.rootNotInStore',
-          detailsParams: isTrustStoreEmpty() ? undefined : { name: rootName },
-        }
-      )
-    } else {
-      const rootName = getCommonName(chain.root)
-      checks.trustRoot = createPassedCheck(
-        t('core.trust.chainComplete'),
-        t('core.chain.rootCa', { name: rootName }),
-        {
-          key: 'core.trust.chainComplete',
-          detailsKey: 'core.chain.rootCa',
-          detailsParams: { name: rootName },
-        }
-      )
-    }
-
-    // 6. Verify timestamp if present (default: always validate)
-    if (pkcs7.embeddedTimestamp && options.validateTimestamp !== false) {
-      // RFC 3161: The messageImprint in a signature timestamp is the hash
-      // of the signatureValue bytes (the cryptographic signature output),
-      // NOT the hash of the signed attributes.
-      const tsHashAlg = normalizeDigestAlgorithm(pkcs7.embeddedTimestamp.hashAlgorithm || 'SHA-256')
-      const tsDigest = await computeDigest(tsHashAlg, signerInfo.signatureValue)
-      const tsResult = await verifyTimestamp(pkcs7.embeddedTimestamp.raw, tsDigest)
-
-      if (tsResult.valid && tsResult.info) {
-        timestampInfo = tsResult.info
-        signedAt = tsResult.info.time
-        checks.timestamp = createPassedCheck(
-          t('core.timestamp.verified'),
-          t('core.timestamp.timeLabel', { time: tsResult.info.time.toISOString() }),
-          {
-            key: 'core.timestamp.verified',
-            detailsKey: 'core.timestamp.timeLabel',
-            detailsParams: { time: tsResult.info.time.toISOString() },
-          }
-        )
-      } else {
-        checks.timestamp = createFailedCheck(
-          t('core.timestamp.verificationFailed'),
-          tsResult.check.details,
-          { key: 'core.timestamp.verificationFailed' }
-        )
-      }
-    } else if (!pkcs7.embeddedTimestamp) {
-      checks.timestamp = createFailedCheck(
-        t('core.timestamp.noTimestamp'),
-        t('core.timestamp.noRfc3161'),
-        {
-          key: 'core.timestamp.noTimestamp',
-          detailsKey: 'core.timestamp.noRfc3161',
-        }
-      )
-    }
-
-    // 7. Check certificate validity
-    const effectiveTime = getEffectiveSigningTime(signedAt, timestampInfo || null)
-    const signerCert = signerInfo.signerCertificate
-
-    if (isCertificateValid(signerCert, effectiveTime)) {
-      checks.validity = createPassedCheck(
-        t('core.validity.validAtSigning'),
-        t('core.validity.validityPeriod', {
-          from: signerCert.notBefore.toLocaleDateString(getLocale()),
-          to: signerCert.notAfter.toLocaleDateString(getLocale()),
-        }),
-        {
-          key: 'core.validity.validAtSigning',
-          detailsKey: 'core.validity.validityPeriod',
-          detailsParams: {
-            from: signerCert.notBefore.toLocaleDateString(getLocale()),
-            to: signerCert.notAfter.toLocaleDateString(getLocale()),
-          },
-        }
-      )
-    } else if (isCertificateValid(signerCert, new Date())) {
-      checks.validity = createPassedCheck(
-        t('core.validity.currentlyValid'),
-        undefined,
-        { key: 'core.validity.currentlyValid' }
-      )
-    } else {
-      // Check if LTV can help
-      const ltvResult = checkLtvCompleteness(
-        chain.certificates,
-        mergeRevocationInfo(pkcs7.embeddedRevocationInfo, dssRevocationInfo),
-        timestampInfo || null
-      )
-
-      const expiredTrust = canTrustExpiredWithLtv(signerCert, timestampInfo || null, ltvResult)
-
-      if (expiredTrust.trusted) {
-        checks.validity = createPassedCheck(
-          t('core.validity.expiredWithLtv'),
-          expiredTrust.reason,
-          { key: 'core.validity.expiredWithLtv' }
-        )
-      } else {
-        checks.validity = createFailedCheck(
-          t('core.validity.expired'),
-          t('core.validity.expiredDate', { date: signerCert.notAfter.toLocaleDateString(getLocale()) }),
-          {
-            key: 'core.validity.expired',
-            detailsKey: 'core.validity.expiredDate',
-            detailsParams: { date: signerCert.notAfter.toLocaleDateString(getLocale()) },
-          }
-        )
-      }
-    }
-
-    // 8. Check revocation status
-    // Merge per-signature embedded revocation info with DSS (Document Security Store)
-    const mergedRevocationInfo = mergeRevocationInfo(pkcs7.embeddedRevocationInfo, dssRevocationInfo)
-
-    // Run embedded check and online check in parallel
-    const issuerCert = chain.certificates[1] || signerCert
-
-    const embeddedPromise = mergedRevocationInfo
-      ? Promise.resolve(checkEmbeddedRevocationStatus(signerCert, mergedRevocationInfo))
-      : Promise.resolve(null)
-
-    const onlinePromise = (async () => {
-      const ocsp = await checkOcspStatus(signerCert, issuerCert)
-      if (ocsp.status === 'good' || ocsp.status === 'revoked') return ocsp
-      return checkCrlStatus(signerCert, issuerCert)
-    })()
-
-    const [embeddedResult, onlineResult] = await Promise.all([embeddedPromise, onlinePromise])
-
-    // Prefer embedded result if definitive (proves status at signing time for LTV)
-    if (embeddedResult?.status === 'good') {
-      checks.revocation = createPassedCheck(
-        t('core.revocation.notRevokedEmbedded'),
-        embeddedResult.details,
-        { key: 'core.revocation.notRevokedEmbedded', detailsKey: embeddedResult.detailsI18nKey, detailsParams: embeddedResult.detailsI18nParams }
-      )
-    } else if (embeddedResult?.status === 'revoked') {
-      checks.revocation = createFailedCheck(
-        t('core.revocation.revoked'),
-        embeddedResult.details,
-        { key: 'core.revocation.revoked', detailsKey: embeddedResult.detailsI18nKey, detailsParams: embeddedResult.detailsI18nParams }
-      )
-    } else if (onlineResult.status === 'good') {
-      const method = onlineResult.method === 'ocsp' ? 'OCSP' : 'CRL'
-      checks.revocation = createPassedCheck(
-        t('core.revocation.notRevokedMethod', { method }),
-        onlineResult.details,
-        {
-          key: 'core.revocation.notRevokedMethod',
-          params: { method },
-          detailsKey: onlineResult.detailsI18nKey,
-          detailsParams: onlineResult.detailsI18nParams,
-        }
-      )
-    } else if (onlineResult.status === 'revoked') {
-      checks.revocation = createFailedCheck(
-        t('core.revocation.revoked'),
-        onlineResult.details,
-        { key: 'core.revocation.revoked', detailsKey: onlineResult.detailsI18nKey, detailsParams: onlineResult.detailsI18nParams }
-      )
-    } else {
-      checks.revocation = createFailedCheck(
-        t('core.revocation.cannotVerify'),
-        t('core.revocation.allFailed'),
-        {
-          key: 'core.revocation.cannotVerify',
-          detailsKey: 'core.revocation.allFailed',
-        }
-      )
-    }
-
-    // 9. LTV check (audit P1-5 + P2-8).
-    // Audit P1-5: do NOT override an incomplete LTV result. hasLtvInfo and
-    // ltvComplete are different states and must be reported as such — UI can
-    // surface "partial LTV (online check passed but no embedded data)" by
-    // combining checks.ltv with checks.revocation.
-    // Audit P2-8: detect DocTimeStamp fields that come after this signature
-    // and feed them as archive timestamps for B-LTA classification.
-    const archiveSignatures = allSignatureFields.filter(
-      (f) => f.isDocTimeStamp && f.byteRange.start2 + f.byteRange.length2 > sigField.byteRange.start2 + sigField.byteRange.length2
-    )
-    const ltvResult = checkLtvCompleteness(
-      chain.certificates,
-      mergedRevocationInfo,
-      timestampInfo || null,
-      {
-        archiveTimestampCount: archiveSignatures.length,
-        // Without per-archive LTV state available here, assume true if DSS
-        // contains revocation data covering each archive TSA. Recursive
-        // archive-TST LTV validation is a TODO for a deeper pass.
-        archiveTimestampsHaveLtv: archiveSignatures.map(() =>
-          (mergedRevocationInfo?.ocspResponses.length || 0) > 0 ||
-          (mergedRevocationInfo?.crls.length || 0) > 0
-        ),
-      }
-    )
-    checks.ltv = ltvResult.check
-    const ltvLevel = ltvResult.level
-
-    // Determine signature status
-    const integrityFailed = !checks.integrity.passed
-    const isRevoked = checks.revocation && !checks.revocation.passed && checks.revocation.message.includes('revoked')
-
-    let status: SignatureResult['status'] = integrityFailed || isRevoked
-      ? 'failed'
-      : !checks.certificateChain.passed || !checks.trustRoot.passed || !checks.validity.passed
-      ? 'unknown'
-      : 'trusted'
-
-    // Audit P1-4 / P2-7: handle unsigned tail bytes after the signed range.
-    //
-    //   - DocMDP P=1 (no changes permitted) + any post-sign change → failed
-    //   - LTV-enriched signature (PAdES B-LT/B-LTA): the post-sign tail is
-    //     legitimately the DSS (Document Security Store) that ships
-    //     revocation data for long-term validation. Don't downgrade — this
-    //     is exactly how the spec wants those signatures to grow.
-    //   - Plain post-sign update on a non-LTV signature: downgrade to
-    //     unknown with "signed with subsequent changes" — could be a later
-    //     signature (multi-sig) or attacker-controlled append.
-    const isLtvSignature = ltvLevel === 'B-LT' || ltvLevel === 'B-LTA'
-    if (signedWithSubsequentChanges) {
-      if (sigField.docMdp && sigField.docMdp.permissionLevel === 1) {
-        status = 'failed'
-        checks.integrity = createFailedCheck(
-          t('core.integrity.docMdpViolation'),
-          t('core.integrity.docMdpP1Violation'),
-          {
-            key: 'core.integrity.docMdpViolation',
-            detailsKey: 'core.integrity.docMdpP1Violation',
-          }
-        )
-      } else if (!isLtvSignature && status === 'trusted') {
-        status = 'unknown'
-        checks.integrity = {
-          ...checks.integrity,
-          details: t('core.integrity.signedWithSubsequentChanges'),
-          detailsI18nKey: 'core.integrity.signedWithSubsequentChanges',
-        }
-      }
-    }
-
-    return createSignatureResult(
-      index,
-      signerName,
-      signedAt,
-      status,
-      checks,
-      certificateChain,
-      timestampInfo,
-      sigField.reason,
-      {
-        type: sigField.docMdp ? 'certification' : 'approval',
-        docMdp: sigField.docMdp,
-        ltvLevel,
-        subsequentChanges: signedWithSubsequentChanges
-          ? [{ signatureIndex: -1, byteOffset: sigField.byteRange.start2 + sigField.byteRange.length2, permittedByDocMdp: null }]
-          : undefined,
-      }
-    )
+    return createSignatureResult(index, signerName, signedAt, status, checks, certificateChain, timestampInfo, sigField.reason, {
+      type: sigField.docMdp ? 'certification' : 'approval',
+      docMdp: sigField.docMdp,
+      ltvLevel: ltvResult.level,
+      subsequentChanges: changes.hasChanges
+        ? [{ signatureIndex: -1, byteOffset: sigField.byteRange.start2 + sigField.byteRange.length2, permittedByDocMdp: !docMdpViolation }]
+        : undefined,
+    })
   } catch (error) {
     checks.integrity = createFailedCheck(
       t('core.error.verificationError'),
       error instanceof Error ? error.message : t('core.error.unknownError'),
       { key: 'core.error.verificationError' }
     )
-    return createSignatureResult(index, signerName, signedAt, 'failed', checks, certificateChain)
+    return fail()
   }
 }
 
-/**
- * Verify a DocTimeStamp signature field (RFC 3161 document-level timestamp).
- * Unlike regular signatures, DocTimeStamp verifies that:
- * 1. The TST imprint matches the hash of the ByteRange-covered document content
- * 2. The TSA certificate chain is valid
- */
-async function verifyDocTimeStamp(
+async function verifyIntegrity(
   pdfData: Uint8Array,
   sigField: PdfSignatureField,
-  index: number
-): Promise<SignatureResult> {
-  const checks: SignatureResult['checks'] = {
-    integrity: createFailedCheck(t('core.docTimestamp.notVerified'), undefined, { key: 'core.docTimestamp.notVerified' }),
-    certificateChain: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
-    trustRoot: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
-    validity: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
-    revocation: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
-    timestamp: null,
-    ltv: createPassedCheck(t('core.docTimestamp.label'), undefined, { key: 'core.docTimestamp.label' }),
+  pkcs7: Awaited<ReturnType<typeof parsePkcs7>>,
+  rawSignerInfo: Awaited<ReturnType<typeof parsePkcs7>>['signedData']['signerInfos'][number],
+  signerCert: ParsedCertificate,
+  signerInfo: Awaited<ReturnType<typeof parsePkcs7>>['signerInfos'][number]
+): Promise<{ passed: boolean; unsupported?: boolean; check: CheckResult }> {
+  const signedBytes = extractSignedBytes(pdfData, sigField.byteRange)
+
+  // adbe.pkcs7.sha1: the encapsulated content is SHA-1(signed bytes).
+  let content = signedBytes
+  const eContent = getEncapsulatedContentBytes(pkcs7.signedData)
+  if (eContent && eContent.length > 0) {
+    const sha1 = await computeDigest('SHA-1', signedBytes)
+    if (!compareBytes(sha1, eContent)) {
+      return {
+        passed: false,
+        check: createFailedCheck(t('core.integrity.documentModified'), t('core.integrity.digestMismatch'), {
+          key: 'core.integrity.documentModified',
+          detailsKey: 'core.integrity.digestMismatch',
+        }),
+      }
+    }
+    content = eContent
   }
 
+  const result = await verifyCmsSignerInfo(rawSignerInfo, signerCert.raw, content)
+  if (!result.valid) {
+    if (result.failure === 'digestMismatch') {
+      return {
+        passed: false,
+        check: createFailedCheck(t('core.integrity.documentModified'), t('core.integrity.digestMismatch'), {
+          key: 'core.integrity.documentModified',
+          detailsKey: 'core.integrity.digestMismatch',
+        }),
+      }
+    }
+    const unsupported = result.failure === 'unsupportedDigest' || result.failure === 'unsupportedAlgorithm'
+    const detailsKey = unsupported ? 'core.integrity.unsupportedDigest' : 'core.integrity.cryptoMismatch'
+    return {
+      passed: false,
+      unsupported,
+      check: createFailedCheck(t('core.integrity.signatureVerificationFailed'), t(detailsKey), {
+        key: 'core.integrity.signatureVerificationFailed',
+        detailsKey,
+      }),
+    }
+  }
+
+  // CAdES / ESS signing-certificate binding (protects against signer cert substitution)
+  if (signerInfo.signingCertificateHash) {
+    const algorithm = normalizeDigestAlgorithm(signerInfo.signingCertificateHashAlgorithm ?? 'SHA-256')
+    const certDer = signerCert.der ?? new Uint8Array(signerCert.raw.toSchema().toBER())
+    const actual = Array.from(await computeDigest(algorithm, certDer))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('')
+    if (actual !== signerInfo.signingCertificateHash.toLowerCase()) {
+      return {
+        passed: false,
+        check: createFailedCheck(
+          t('core.integrity.signingCertMismatch'),
+          t('core.integrity.cadesHashDetails', { expected: signerInfo.signingCertificateHash, actual }),
+          {
+            key: 'core.integrity.signingCertMismatch',
+            detailsKey: 'core.integrity.cadesHashDetails',
+            detailsParams: { expected: signerInfo.signingCertificateHash, actual },
+          }
+        ),
+      }
+    }
+  }
+
+  return {
+    passed: true,
+    check: createPassedCheck(t('core.integrity.integrityAndSignatureVerified'), undefined, {
+      key: 'core.integrity.integrityAndSignatureVerified',
+    }),
+  }
+}
+
+// ─── Chain / validity / revocation descriptions ──────────────────
+
+const NON_SIGNING_EKUS = new Set(['serverAuth', 'timeStamping', 'ocspSigning', 'codeSigning'])
+
+/**
+ * The signer certificate must be an end-entity certificate meant for
+ * signatures: not a CA, keyUsage (if present) allows digitalSignature or
+ * nonRepudiation, and the EKU (if present) is not limited to purposes such as
+ * TLS servers, time-stamping or OCSP signing.
+ */
+export function signingUsageProblem(cert: ParsedCertificate): string | null {
+  if (cert.isCA) return 'core.chain.signerIsCa'
+  if (cert.keyUsagePresent && !cert.keyUsage.digitalSignature && !cert.keyUsage.nonRepudiation) {
+    return 'core.chain.keyUsageNotForSigning'
+  }
+  if (cert.extKeyUsage.length > 0 && cert.extKeyUsage.every((eku) => NON_SIGNING_EKUS.has(eku))) {
+    return 'core.chain.ekuNotForSigning'
+  }
+  return null
+}
+
+function describeChain(chain: CertificateChain): { certificateChain: CheckResult; trustRoot: CheckResult } {
+  const count = chain.certificates.length
+  if (chain.selfSignedLeaf) {
+    return {
+      certificateChain: createFailedCheck(t('core.chain.selfSignedNotSupported'), undefined, {
+        key: 'core.chain.selfSignedNotSupported',
+      }),
+      trustRoot: createFailedCheck(t('core.trust.rootUntrusted'), t('core.trust.selfSignedNotSupported'), {
+        key: 'core.trust.rootUntrusted',
+        detailsKey: 'core.trust.selfSignedNotSupported',
+      }),
+    }
+  }
+  if (chain.isTrusted && chain.root) {
+    const rootName = getCommonName(chain.root)
+    return {
+      certificateChain: createPassedCheck(
+        t('core.chain.chainCompleteAndVerified'),
+        t('core.chain.chainCompleteWithCount', { count }),
+        { key: 'core.chain.chainCompleteAndVerified', detailsKey: 'core.chain.chainCompleteWithCount', detailsParams: { count } }
+      ),
+      trustRoot: createPassedCheck(t('core.trust.trusted'), t('core.chain.rootCa', { name: rootName }), {
+        key: 'core.trust.trusted',
+        detailsKey: 'core.chain.rootCa',
+        detailsParams: { name: rootName },
+      }),
+    }
+  }
+  if (chain.isComplete && chain.root) {
+    const rootName = getCommonName(chain.root)
+    const empty = isTrustStoreEmpty()
+    return {
+      certificateChain: createFailedCheck(
+        t('core.chain.chainVerifiedUntrustedRoot'),
+        t('core.chain.chainCompleteWithCount', { count }),
+        { key: 'core.chain.chainVerifiedUntrustedRoot', detailsKey: 'core.chain.chainCompleteWithCount', detailsParams: { count } }
+      ),
+      trustRoot: createFailedCheck(
+        t('core.trust.rootUntrusted'),
+        empty ? t('core.trust.storeEmpty') : t('core.trust.rootNotInStore', { name: rootName }),
+        {
+          key: 'core.trust.rootUntrusted',
+          detailsKey: empty ? 'core.trust.storeEmpty' : 'core.trust.rootNotInStore',
+          detailsParams: empty ? undefined : { name: rootName },
+        }
+      ),
+    }
+  }
+  return {
+    certificateChain: createFailedCheck(t('core.chain.chainIncomplete'), t('core.chain.cannotBuildChain'), {
+      key: 'core.chain.chainIncomplete',
+      detailsKey: 'core.chain.cannotBuildChain',
+    }),
+    trustRoot: createFailedCheck(t('core.trust.chainIncomplete'), t('core.trust.cannotBuildChain'), {
+      key: 'core.trust.chainIncomplete',
+      detailsKey: 'core.trust.cannotBuildChain',
+    }),
+  }
+}
+
+function describeValidity(
+  chain: CertificateChain,
+  signerCert: ParsedCertificate,
+  trustedTime: Date | null,
+  validationTime: Date
+): CheckResult {
+  const period = {
+    from: signerCert.notBefore.toLocaleDateString(getLocale()),
+    to: signerCert.notAfter.toLocaleDateString(getLocale()),
+  }
+  if (!isCertificateValid(signerCert, validationTime)) {
+    if (validationTime < signerCert.notBefore) {
+      return createFailedCheck(t('core.validity.notYetValid'), t('core.validity.validityPeriod', period), {
+        key: 'core.validity.notYetValid',
+        detailsKey: 'core.validity.validityPeriod',
+        detailsParams: period,
+      })
+    }
+    const key = trustedTime ? 'core.validity.notValidAtTimestamp' : 'core.validity.expiredNoTimestamp'
+    return createFailedCheck(t(key), t('core.validity.validityPeriod', period), {
+      key,
+      detailsKey: 'core.validity.validityPeriod',
+      detailsParams: period,
+    })
+  }
+  for (const ca of chain.certificates.slice(1)) {
+    if (!isCertificateValid(ca, validationTime)) {
+      const name = getCommonName(ca)
+      return createFailedCheck(t('core.validity.caNotValid', { name }), undefined, {
+        key: 'core.validity.caNotValid',
+        params: { name },
+      })
+    }
+  }
+  const key = trustedTime ? 'core.validity.validAtTimestamp' : 'core.validity.currentlyValid'
+  return createPassedCheck(t(key), t('core.validity.validityPeriod', period), {
+    key,
+    detailsKey: 'core.validity.validityPeriod',
+    detailsParams: period,
+  })
+}
+
+interface ChainRevocation {
+  status: 'good' | 'revoked' | 'unknown'
+  leaf: CertRevocationOutcome
+  revokedCa?: ParsedCertificate
+  /** First issuing CA whose status could not be established. */
+  unknownCa?: ParsedCertificate
+  coverage: Array<{ name: string; covered: boolean }>
+}
+
+/**
+ * Revocation for every non-anchor certificate of a trusted path.
+ */
+async function checkChainRevocation(chain: CertificateChain, ctx: RevocationContext): Promise<ChainRevocation> {
+  const certs = chain.certificates
+  const outcomes = await Promise.all(
+    certs.slice(0, -1).map((cert, i) => checkCertificateRevocation(cert, certs[i + 1], ctx))
+  )
+  const coverage = outcomes.map((o, i) => ({ name: getCommonName(certs[i]), covered: !!o.embeddedEvidence && o.status === 'good' }))
+  const revokedIndex = outcomes.findIndex((o) => o.status === 'revoked')
+  const leaf = outcomes[0]
+  if (revokedIndex >= 0) {
+    return { status: 'revoked', leaf, revokedCa: revokedIndex > 0 ? certs[revokedIndex] : undefined, coverage }
+  }
+  // Every certificate of the path must be proven unrevoked.
+  const unknownIndex = outcomes.findIndex((o, i) => i > 0 && o.status !== 'good')
+  if (leaf.status === 'good' && unknownIndex > 0) {
+    return { status: 'unknown', leaf, unknownCa: certs[unknownIndex], coverage }
+  }
+  return { status: leaf.status, leaf, coverage }
+}
+
+function describeRevocation(
+  revocation: ChainRevocation | null,
+  chain: CertificateChain,
+  signerCert: ParsedCertificate
+): CheckResult {
+  if (!revocation) {
+    return createFailedCheck(t('core.revocation.cannotVerify'), t('core.revocation.chainNotTrusted'), {
+      key: 'core.revocation.cannotVerify',
+      detailsKey: 'core.revocation.chainNotTrusted',
+    })
+  }
+  if (revocation.status === 'revoked') {
+    if (revocation.revokedCa) {
+      const name = getCommonName(revocation.revokedCa)
+      return createFailedCheck(t('core.revocation.revoked'), t('core.revocation.caRevoked', { name }), {
+        key: 'core.revocation.revoked',
+        detailsKey: 'core.revocation.caRevoked',
+        detailsParams: { name },
+      })
+    }
+    const date = revocation.leaf.evidence?.revokedAt?.toISOString() ?? '-'
+    return createFailedCheck(t('core.revocation.revoked'), t('core.revocation.revokedAt', { date }), {
+      key: 'core.revocation.revoked',
+      detailsKey: 'core.revocation.revokedAt',
+      detailsParams: { date },
+    })
+  }
+  const leaf = revocation.leaf
+  if (revocation.unknownCa) {
+    const name = getCommonName(revocation.unknownCa)
+    return createFailedCheck(t('core.revocation.cannotVerify'), t('core.revocation.caUnknown', { name }), {
+      key: 'core.revocation.cannotVerify',
+      detailsKey: 'core.revocation.caUnknown',
+      detailsParams: { name },
+    })
+  }
+  if (leaf.status === 'good' && leaf.evidence) {
+    const kind = leaf.evidence.kind === 'ocsp' ? 'OCSP' : 'CRL'
+    const evidenceParams = { kind, signer: leaf.evidence.signerName }
+    if (leaf.revokedAfterSigning) {
+      const date = leaf.evidence.revokedAt?.toISOString() ?? '-'
+      return createPassedCheck(t('core.revocation.notRevokedMethod', { method: kind }), t('core.revocation.revokedAfterSigning', { date }), {
+        key: 'core.revocation.notRevokedMethod',
+        params: { method: kind },
+        detailsKey: 'core.revocation.revokedAfterSigning',
+        detailsParams: { date },
+      })
+    }
+    if (leaf.source === 'embedded') {
+      return createPassedCheck(t('core.revocation.notRevokedEmbedded'), t('core.revocation.evidence', evidenceParams), {
+        key: 'core.revocation.notRevokedEmbedded',
+        detailsKey: 'core.revocation.evidence',
+        detailsParams: evidenceParams,
+      })
+    }
+    return createPassedCheck(t('core.revocation.notRevokedMethod', { method: kind }), t('core.revocation.evidence', evidenceParams), {
+      key: 'core.revocation.notRevokedMethod',
+      params: { method: kind },
+      detailsKey: 'core.revocation.evidence',
+      detailsParams: evidenceParams,
+    })
+  }
+  const expired = new Date() > signerCert.notAfter
+  const detailsKey = expired && chain.isTrusted ? 'core.revocation.expiredNeedsLtv' : 'core.revocation.allFailed'
+  return createFailedCheck(t('core.revocation.cannotVerify'), t(detailsKey), {
+    key: 'core.revocation.cannotVerify',
+    detailsKey,
+  })
+}
+
+function toCertificateInfo(chain: CertificateChain): CertificateInfo[] {
+  return chain.certificates.map((cert, i) => ({
+    subject: cert.subject,
+    issuer: cert.issuer,
+    serialNumber: cert.serialNumber,
+    notBefore: cert.notBefore,
+    notAfter: cert.notAfter,
+    isRoot: i === chain.certificates.length - 1 && cert.subject === cert.issuer,
+    isTrusted: chain.isTrusted,
+    fingerprint: cert.fingerprint,
+  }))
+}
+
+// ─── Document timestamps (ETSI.RFC3161) ──────────────────────────
+
+/**
+ * Verify a DocTimeStamp: the TST imprint must equal the hash of the ByteRange
+ * content, the TSA signature must verify and the TSA path must reach a TSA
+ * trust anchor.
+ */
+async function verifyDocTimeStamp(
+  sigField: PdfSignatureField,
+  index: number,
+  ctx: DocContext
+): Promise<DocTimestampOutcome> {
+  const label = () => createFailedCheck(t('core.docTimestamp.notVerified'), undefined, { key: 'core.docTimestamp.notVerified' })
+  const checks: SignatureResult['checks'] = {
+    integrity: label(),
+    certificateChain: label(),
+    trustRoot: label(),
+    validity: label(),
+    revocation: label(),
+    timestamp: null,
+    ltv: label(),
+  }
+  const failedOutcome = (): DocTimestampOutcome => ({
+    result: createSignatureResult(index, 'DocTimeStamp', null, 'failed', checks, []),
+    trusted: false,
+    ltvCovered: false,
+  })
+
   try {
-    // 1. Validate ByteRange
-    const byteRangeValidation = validateByteRange(pdfData, sigField.byteRange)
+    const byteRangeValidation = validateByteRange(ctx.pdfData, sigField.byteRange)
     if (!byteRangeValidation.isValid) {
-      checks.integrity = createFailedCheck(
-        t('core.docTimestamp.byteRangeFailed'),
-        byteRangeValidation.errors.join('; '),
-        { key: 'core.docTimestamp.byteRangeFailed' }
-      )
-      return createSignatureResult(index, 'DocTimeStamp', null, 'failed', checks, [])
+      checks.integrity = createFailedCheck(t('core.docTimestamp.byteRangeFailed'), byteRangeValidation.errors.join('; '), {
+        key: 'core.docTimestamp.byteRangeFailed',
+      })
+      return failedOutcome()
     }
 
-    // 2. Compute hash of the signed bytes (document content covered by ByteRange)
-    const signedBytes = extractSignedBytes(pdfData, sigField.byteRange)
-    const docHash = await computeDigest('SHA-256', signedBytes)
+    const allowNetwork = ctx.options.checkOnlineRevocation !== false
+    const signedBytes = extractSignedBytes(ctx.pdfData, sigField.byteRange)
+    const ts = await verifyTimestampForData(sigField.contents, signedBytes, {
+      extraCertBytes: ctx.dss?.certs ?? [],
+      fetchMissing: allowNetwork,
+    })
+    const tsaName = ts.info?.issuer || 'DocTimeStamp'
+    const signerName = `DocTimeStamp (${tsaName})`
+    const tsaChain = ts.tsaChain
+    const certificateChain = tsaChain ? toCertificateInfo(tsaChain) : []
 
-    // 3. Verify the timestamp token against the document hash
-    const tsResult = await verifyTimestamp(sigField.contents, docHash)
-
-    if (!tsResult.valid && tsResult.info) {
-      // Try SHA-1 as fallback (some older TSAs use SHA-1)
-      const docHashSha1 = await computeDigest('SHA-1', signedBytes)
-      const tsResultSha1 = await verifyTimestamp(sigField.contents, docHashSha1)
-      if (tsResultSha1.valid && tsResultSha1.info) {
-        const tsaName = tsResultSha1.info.issuer || 'DocTimeStamp'
-        checks.integrity = createPassedCheck(
-          t('core.docTimestamp.verified'),
-          t('core.docTimestamp.tsaTime', {
-            tsa: tsaName,
-            time: tsResultSha1.info.time.toISOString(),
-          }),
-          {
-            key: 'core.docTimestamp.verified',
-            detailsKey: 'core.docTimestamp.tsaTime',
-            detailsParams: { tsa: tsaName, time: tsResultSha1.info.time.toISOString() },
-          }
-        )
-        checks.timestamp = createPassedCheck(
-          t('core.docTimestamp.timestampVerified'),
-          t('core.docTimestamp.timeLabel', { time: tsResultSha1.info.time.toISOString() }),
-          {
-            key: 'core.docTimestamp.timestampVerified',
-            detailsKey: 'core.docTimestamp.timeLabel',
-            detailsParams: { time: tsResultSha1.info.time.toISOString() },
-          }
-        )
-        return createSignatureResult(
-          index,
-          `DocTimeStamp (${tsaName})`,
-          tsResultSha1.info.time,
-          'trusted',
-          checks,
-          [],
-          tsResultSha1.info
-        )
+    if (ts.failure === 'imprintMismatch' || ts.failure === 'signatureInvalid' || ts.failure === 'parse' || !ts.info) {
+      checks.integrity = createFailedCheck(t('core.docTimestamp.verificationFailed'), ts.check.message, {
+        key: 'core.docTimestamp.verificationFailed',
+      })
+      checks.timestamp = ts.check
+      return {
+        result: createSignatureResult(index, signerName, ts.info?.time ?? null, 'failed', checks, certificateChain),
+        trusted: false,
+        ltvCovered: false,
       }
     }
 
-    if (tsResult.valid && tsResult.info) {
-      const tsaName = tsResult.info.issuer || 'DocTimeStamp'
-      checks.integrity = createPassedCheck(
-        t('core.docTimestamp.verified'),
-        t('core.docTimestamp.tsaTime', {
-          tsa: tsaName,
-          time: tsResult.info.time.toISOString(),
-        }),
-        {
-          key: 'core.docTimestamp.verified',
-          detailsKey: 'core.docTimestamp.tsaTime',
-          detailsParams: { tsa: tsaName, time: tsResult.info.time.toISOString() },
-        }
-      )
-      checks.timestamp = createPassedCheck(
-        t('core.docTimestamp.timestampVerified'),
-        t('core.docTimestamp.timeLabel', { time: tsResult.info.time.toISOString() }),
-        {
+    const time = ts.info.time.toISOString()
+    checks.integrity = createPassedCheck(t('core.docTimestamp.verified'), t('core.docTimestamp.tsaTime', { tsa: tsaName, time }), {
+      key: 'core.docTimestamp.verified',
+      detailsKey: 'core.docTimestamp.tsaTime',
+      detailsParams: { tsa: tsaName, time },
+    })
+    checks.timestamp = ts.valid
+      ? createPassedCheck(t('core.docTimestamp.timestampVerified'), t('core.docTimestamp.timeLabel', { time }), {
           key: 'core.docTimestamp.timestampVerified',
           detailsKey: 'core.docTimestamp.timeLabel',
-          detailsParams: { time: tsResult.info.time.toISOString() },
-        }
-      )
-      return createSignatureResult(
-        index,
-        `DocTimeStamp (${tsaName})`,
-        tsResult.info.time,
-        'trusted',
-        checks,
-        [],
-        tsResult.info
-      )
+          detailsParams: { time },
+        })
+      : ts.check
+
+    if (tsaChain) {
+      const chainChecks = describeChain(tsaChain)
+      checks.certificateChain = chainChecks.certificateChain
+      checks.trustRoot = chainChecks.trustRoot
+    } else {
+      checks.certificateChain = ts.check
+      checks.trustRoot = ts.check
+    }
+    checks.validity =
+      ts.failure === 'tsaCertNotValidAtTime' || ts.failure === 'tsaNotTimestampingCert'
+        ? ts.check
+        : tsaChain
+        ? describeValidity(tsaChain, tsaChain.certificates[0], ts.info.time, ts.info.time)
+        : ts.check
+
+    let revocationStatus: 'good' | 'revoked' | 'unknown' = 'unknown'
+    let ltvCovered = false
+    if (ts.valid && tsaChain?.isTrusted) {
+      const revCtx: RevocationContext = {
+        embedded: ctx.dss,
+        allowOnline: allowNetwork,
+        atTime: ts.info.time,
+        atTimeTrusted: true,
+      }
+      const revocation = await checkChainRevocation(tsaChain, revCtx)
+      revocationStatus = revocation.status
+      ltvCovered = revocation.coverage.every((c) => c.covered)
+      checks.revocation = describeRevocation(revocation, tsaChain, tsaChain.certificates[0])
+      checks.ltv = ltvCovered
+        ? createPassedCheck(t('core.ltv.ltvComplete'), t('core.ltv.canLongTermVerify'), { key: 'core.ltv.ltvComplete', detailsKey: 'core.ltv.canLongTermVerify' })
+        : createFailedCheck(t('core.ltv.ltvIncomplete'), t('core.ltv.missing', { items: revocation.coverage.filter((c) => !c.covered).map((c) => c.name).join(', ') }), {
+            key: 'core.ltv.ltvIncomplete',
+          })
+    } else {
+      checks.revocation = createFailedCheck(t('core.revocation.cannotVerify'), t('core.revocation.chainNotTrusted'), {
+        key: 'core.revocation.cannotVerify',
+        detailsKey: 'core.revocation.chainNotTrusted',
+      })
     }
 
-    // Timestamp verification failed
-    checks.integrity = createFailedCheck(
-      t('core.docTimestamp.verificationFailed'),
-      tsResult.check.details,
-      { key: 'core.docTimestamp.verificationFailed' }
-    )
-    checks.timestamp = tsResult.check
-    return createSignatureResult(index, 'DocTimeStamp', null, 'failed', checks, [])
+    const changes = await assessChanges(sigField, ctx)
+    checks.integrity = applyChangeAssessment(checks.integrity, changes)
+    const status = determineSignatureStatus({
+      integrityPassed: checks.integrity.passed,
+      selfSignedSigner: !!tsaChain?.selfSignedLeaf,
+      chainTrusted: !!tsaChain?.isTrusted && ts.valid,
+      validityPassed: checks.validity.passed,
+      revocation: revocationStatus,
+      timestampFailure: ts.valid ? null : ts.failure ?? 'parse',
+      docMdpViolation: changes.docMdpViolation,
+      unexplainedChanges: changes.unexplainedChanges,
+    })
+
+    return {
+      result: createSignatureResult(index, signerName, ts.info.time, status, checks, certificateChain, ts.info, undefined, {
+        type: 'timestamp',
+      }),
+      trusted: status === 'trusted',
+      ltvCovered,
+    }
   } catch (error) {
     checks.integrity = createFailedCheck(
       t('core.docTimestamp.verificationError'),
       error instanceof Error ? error.message : t('core.error.unknownError'),
       { key: 'core.docTimestamp.verificationError' }
     )
-    return createSignatureResult(index, 'DocTimeStamp', null, 'failed', checks, [])
+    return failedOutcome()
   }
 }
 
+interface ChangeAssessment {
+  hasChanges: boolean
+  docMdpViolation: boolean
+  unexplainedChanges: boolean
+  reason?: string
+}
+
+/**
+ * Compare this signature's revision with the final document.
+ * Permitted changes follow the certification signature's DocMDP level
+ * (P1 → LTV/doc timestamps only, P2 → + signatures, P3 → + annotations);
+ * without a certification signature, signatures and LTV data are permitted.
+ * Not permitted → failed under DocMDP, unknown otherwise; changes that cannot
+ * be analysed → unknown.
+ */
+async function assessChanges(sigField: PdfSignatureField, ctx: DocContext): Promise<ChangeAssessment> {
+  const end = sigField.byteRange.start2 + sigField.byteRange.length2
+  const policy: ChangePolicy = ctx.docMdpLevel === 1 ? 'ltv' : ctx.docMdpLevel === 3 ? 'annotations' : 'signing'
+  const analysis = await ctx.changes.changesSince(end, policy)
+  if (!analysis.hasChanges) return { hasChanges: false, docMdpViolation: false, unexplainedChanges: false }
+  if (analysis.analysable && analysis.violations.length === 0) {
+    return { hasChanges: true, docMdpViolation: false, unexplainedChanges: false }
+  }
+  const reason = analysis.violations.slice(0, 3).join('; ')
+  if (analysis.analysable && ctx.docMdpLevel !== null) {
+    return { hasChanges: true, docMdpViolation: true, unexplainedChanges: false, reason }
+  }
+  return { hasChanges: true, docMdpViolation: false, unexplainedChanges: true, reason }
+}
+
+function applyChangeAssessment(integrity: CheckResult, changes: ChangeAssessment): CheckResult {
+  if (!changes.hasChanges || !integrity.passed) return integrity
+  if (changes.docMdpViolation) {
+    return createFailedCheck(t('core.integrity.docMdpViolation'), t('core.integrity.unpermittedChanges', { reason: changes.reason ?? '' }), {
+      key: 'core.integrity.docMdpViolation',
+      detailsKey: 'core.integrity.unpermittedChanges',
+      detailsParams: { reason: changes.reason ?? '' },
+    })
+  }
+  if (changes.unexplainedChanges) {
+    return {
+      ...integrity,
+      details: t('core.integrity.unpermittedChanges', { reason: changes.reason ?? '' }),
+      detailsI18nKey: 'core.integrity.unpermittedChanges',
+      detailsI18nParams: { reason: changes.reason ?? '' },
+    }
+  }
+  return { ...integrity, details: t('core.integrity.subsequentSignatures'), detailsI18nKey: 'core.integrity.subsequentSignatures' }
+}
+
+/** Trusted DocTimeStamps that cover this signature (archive timestamps, B-LTA). */
+function archiveTimestampsAfter(sigField: PdfSignatureField, ctx: DocContext): DocTimestampOutcome[] {
+  const end = sigField.byteRange.start2 + sigField.byteRange.length2
+  const out: DocTimestampOutcome[] = []
+  for (const [field, outcome] of ctx.docTimestamps) {
+    if (outcome.trusted && field.byteRange.start2 + field.byteRange.length2 > end) out.push(outcome)
+  }
+  return out
+}
+
+// ─── helpers ─────────────────────────────────────────────────────
+
 /**
  * Merge per-signature embedded revocation info with document-level DSS data.
- * DSS (Document Security Store) stores OCSP/CRL at the PDF catalog level,
- * separate from the PKCS#7 signature's unsigned attributes.
  */
 function mergeRevocationInfo(
   signatureInfo: EmbeddedRevocationInfo | null,
@@ -820,18 +941,9 @@ function mergeRevocationInfo(
   }
 
   return {
-    ocspResponses: [
-      ...(signatureInfo?.ocspResponses || []),
-      ...(dssInfo?.ocspResponses || []),
-    ],
-    crls: [
-      ...(signatureInfo?.crls || []),
-      ...(dssInfo?.crls || []),
-    ],
-    certs: [
-      ...(signatureInfo?.certs || []),
-      ...(dssInfo?.certs || []),
-    ],
+    ocspResponses: [...(signatureInfo?.ocspResponses || []), ...(dssInfo?.ocspResponses || [])],
+    crls: [...(signatureInfo?.crls || []), ...(dssInfo?.crls || [])],
+    certs: [...(signatureInfo?.certs || []), ...(dssInfo?.certs || [])],
   }
 }
 
