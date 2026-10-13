@@ -25,25 +25,26 @@ export default defineContentScript({
         setLocale(detectBrowserLocale())
       }
     }
-    initLocale()
+    // Detect PDF files once the language is known: the injected bar and
+    // buttons are labelled when they are created.
+    void initLocale().then(() => {
+      detectPdfLinks()
+      detectEmbeddedPdfs()
 
-    // Detect PDF files in the page
-    detectPdfLinks()
-    detectEmbeddedPdfs()
-
-    // Watch for dynamically added content
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.addedNodes.length > 0) {
-          detectPdfLinks()
-          detectEmbeddedPdfs()
+      // Watch for dynamically added content
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.addedNodes.length > 0) {
+            detectPdfLinks()
+            detectEmbeddedPdfs()
+          }
         }
-      }
-    })
+      })
 
-    observer.observe(document.body, {
-      childList: true,
-      subtree: true,
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+      })
     })
 
     // Listen for panel messages

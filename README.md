@@ -114,6 +114,10 @@ Playwright suite (`npm run build` first, then
 extension into Chromium and verifies PDFs opened over HTTP. A per-check report
 is available with `PDF_SAMPLE_REPORT=1 npx vitest run tests/samples`.
 
+## Releasing
+
+Store updates (Chrome Web Store API v2, Edge Add-ons API v1.1) run from `.github/workflows/release.yml`: push a tag `vX.Y.Z` equal to `package.json`'s version, approve the `store` environment, and the package is uploaded and submitted for review. One-time setup and troubleshooting: [docs/release.md](docs/release.md). Listing texts and permission justifications live in `store/`.
+
 ## Architecture
 
 ```
