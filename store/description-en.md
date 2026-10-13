@@ -6,12 +6,12 @@ Open a PDF in your browser and its digital signatures are verified automatically
 
 - **Verify on open** — PDFs opened in the browser are verified automatically and the result appears in a side panel (Chrome, Edge); choose all sites, listed sites only, or off
 - **Toolbar status** — the extension icon shows ✓ trusted / ! not fully verified / ✗ failed; click it for the details
-- **Taiwan PKI trust list** — government: certificates under the Government Root Certification Authority (GRCA): citizen (MOICA), government agency (GCA), organization (XCA) and business (MOEACA) certificates; private: TWCA and Chunghwa Telecom. Self-signed certificates are not accepted
-- **Selected international CAs (optional)** — only Taiwan certificates are trusted by default; turn on the document-signing and timestamping roots of DigiCert, GlobalSign, Sectigo, IdenTrust and SSL.com in settings
+- **Taiwan certificates** — trusts certificates issued under Taiwan's government root (such as citizen and business certificates) and by Taiwan's commercial certificate authorities by default; self-signed certificates are not accepted
+- **International CAs (optional)** — only Taiwan certificates are trusted by default; selected international document-signing and timestamping CAs can be turned on in settings
 - **Regulatory label** — after the certificate chain is verified, each signature shows whether its CA is licensed under Taiwan's Electronic Signatures Act; international CAs are marked as not licensed in Taiwan
 - **Integrity check** — confirms the document was not altered after signing and detects changes the signer did not allow
 - **Certificate chain and revocation** — validates every link of the chain and checks revocation with embedded or online OCSP / CRL data
-- **Timestamps and LTV** — verifies RFC 3161 timestamps (issued by a Taiwan PKI timestamp authority), uses the timestamp time for expired certificates, and checks whether long-term validation data is complete
+- **Timestamps and LTV** — verifies RFC 3161 timestamps (from a Taiwan PKI timestamp authority by default; also from the selected international ones when that option is on), uses the timestamp time for expired certificates, and checks whether long-term validation data is complete
 - **Clear results** — every check is marked green / red / amber / grey; when a signature cannot be fully verified the main reasons are listed, with one-click re-check
 - **Several ways to verify** — drop a PDF on the notification bar or the extension window, right-click a link and choose "Verify the digital signatures of this PDF", or use the verify button next to PDF links
 - **Local files** — after turning on "Allow access to file URLs" in the extension details, local PDFs are verified automatically too

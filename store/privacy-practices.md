@@ -8,7 +8,7 @@ Paste into the Chrome Web Store "Privacy practices" tab (Edge Partner Center ask
 |---|---|
 | `host_permissions: <all_urls>` | Detect PDFs on any page (viewer bar, verify buttons next to PDF links), download the PDF the user opened in order to verify it, and query the certificate authorities' OCSP / CRL services for revocation status. |
 | `contextMenus` | Adds "Verify the digital signatures of this PDF" to the right-click menu of links and embedded documents. |
-| `storage` | Saves the user's settings (language, automatic verification scope), the verification result shown for each tab (session only), and briefly caches OCSP / CRL answers (session only). |
+| `storage` | Saves the user's settings (language, automatic verification scope, international CA option), the verification result shown for each tab (session only), and briefly caches OCSP / CRL answers (session only). |
 | `downloads` | Saves the verification report the user exports as a PDF file. |
 | `alarms` | Keeps the service worker alive while a verification is running so long OCSP / CRL requests are not interrupted. |
 | `activeTab` | Lets the popup offer verification of the PDF in the current tab. |
