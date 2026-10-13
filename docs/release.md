@@ -52,6 +52,14 @@ Actions → **Release to browser stores** → Run workflow → 勾選 **check_on
 4. GitHub 通知 → Review deployments → 確認 commit 與版本無誤 → **Approve**：上傳兩家並送審。
 5. 審核通常數天，最長數週。手動執行時可選 Chrome `STAGED_PUBLISH`：審核通過後到後台再按發布。
 
+## 商店文案與素材
+
+- **說明文字不可列品牌／廠商名稱**：1.0.4 首次送 Chrome 時，中文說明列出國際憑證廠商名稱，被以「關鍵字垃圾內容」（Yellow Argon）退回。廠商清單只放在擴充功能設定頁與 README。說明宜精簡。
+- 文案：`store/description-zh-TW.md`（Chrome 中文，精簡版）、`store/description-en.md`（Edge 英文語系）；後台為純文字，貼上前去掉 Markdown 符號。
+- 權限用途：`store/privacy-practices.md`（Chrome 隱私權頁、Edge Privacy 頁共用）。Edge 審核備註：`store/edge-certification-notes.md`。
+- 截圖：模擬圖（繪製的瀏覽器＋虛構文件，面板為真實介面），不放真實文件或簽名。`node scripts/store-assets/mockups.mjs . <輸出資料夾>`（需先 `npm run build`，並有 PDF_Sample 樣本）；商店圖示／Edge logo／宣傳圖：`node scripts/store-assets/store-assets.mjs . <輸出資料夾>`。
+- Chrome 開發人員後台無法以瀏覽器擴充功能自動操作（Chrome 封鎖對商店頁面的腳本），需手動或改用 API；Edge Partner Center 可由瀏覽器代操作。Edge 商品目前只有英文（美國）語系。
+
 ## 常見錯誤
 
 | 訊息 | 原因／處理 |
